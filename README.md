@@ -9,11 +9,12 @@ App de gestão operacional (grelha de presenças, colaboradores, lojas, clientes
 - Firebase Firestore (compat SDK) — projeto `presencasde`
 
 ## Estrutura de dados (Firestore)
-- `stores/{id}` — lojas (nome, clienteId, categoria, ccCode, meta, limBackup, cor, ordem)
+- `stores/{id}` — lojas (nome, clienteId, categoria, ccCode, meta, limBackup, cor, ordem, tipo: "normal"|"backup_pool")
 - `clients/{id}` — clientes (nome, cor)
-- `employees/{id}` — colaboradores (nome, lojaId, turno, veiculo, funcao, estado, desligadoData)
+- `employees/{id}` — colaboradores (nome, lojaId, turno, veiculo, funcao, estado, desligadoData, folgaFixa: [0-6])
 - `schedule/{YYYY-MM}` — **um único documento por mês**, com um mapa `cells` de `empId_dia -> status`. Isto minimiza leituras (1 documento por mês em vez de 1 por dia/colaborador).
 - `backups/{id}` — registos de backup (data, colaboradorId, tipo, origem, destino, duracao, custo, motivo)
+- `auditLog/{id}` — histórico de edição (timestamp, user, acao, entidade, alvo, detalhes) — últimos 300 eventos exibidos na aba Histórico
 
 ## Configurar o Firestore
 1. Firebase Console → projeto `presencasde` → Firestore Database → separador **Regras**.
