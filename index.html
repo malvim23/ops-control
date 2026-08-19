@@ -24,6 +24,22 @@
     "https://unpkg.com/chart.js@4.4.4/dist/chart.umd.min.js",
   ]);
 </script>
+<script>
+  // Carrega o html2canvas (usado para exportar a grelha em PNG), com CDN de
+  // reserva caso a principal falhe (firewall/adblocker).
+  window.__html2canvasFailed = false;
+  (function loadHtml2Canvas(urls) {
+    if (!urls.length) { window.__html2canvasFailed = true; return; }
+    const s = document.createElement("script");
+    s.src = urls[0];
+    s.onerror = function () { loadHtml2Canvas(urls.slice(1)); };
+    document.currentScript.insertAdjacentElement("afterend", s);
+  })([
+    "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+    "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+    "https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js",
+  ]);
+</script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -798,6 +814,8 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
   const [fTurno, setFTurno] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [editingCell, setEditingCell] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const gridScrollRef = useRef(null);
 
   const mk = monthKey(y, m);
   useEffect(() => {
@@ -857,6 +875,67 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
     setM(nm); setY(ny);
   };
 
+  // Captura a grelha inteira (incluindo cabeçalhos fixos e todas as linhas,
+  // mesmo as que estão fora da área visível de scroll) e faz download em PNG.
+  const handleDownloadGridPNG = async () => {
+    const el = gridScrollRef.current;
+    if (!el) return;
+    if (typeof html2canvas === "undefined") {
+      alert("Não foi possível gerar a imagem: a biblioteca de exportação ainda não carregou. Verifica a ligação à internet e tenta novamente em alguns segundos.");
+      return;
+    }
+
+    setExporting(true);
+
+    // 1) Remove temporariamente o limite de altura e o scroll do contentor,
+    //    para que TODAS as linhas (mesmo as que estão fora do scroll) fiquem
+    //    presentes no layout normal do documento.
+    const prevMaxHeight = el.style.maxHeight;
+    const prevOverflow = el.style.overflow;
+    el.style.maxHeight = "none";
+    el.style.overflow = "visible";
+
+    // 2) Neutraliza position:sticky (cabeçalhos e coluna "DIA") — sem um
+    //    contentor com scroll, o sticky pode "colar-se" ao viewport e
+    //    estragar a captura. Guarda o valor original de cada elemento para
+    //    repor depois.
+    const stickyEls = Array.from(el.querySelectorAll("*")).filter(
+      (n) => getComputedStyle(n).position === "sticky"
+    );
+    const stickyOriginal = stickyEls.map((n) => n.style.position);
+    stickyEls.forEach((n) => { n.style.position = "static"; });
+
+    // Força reflow antes de capturar
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    try {
+      const canvas = await html2canvas(el, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        useCORS: true,
+        windowWidth: el.scrollWidth,
+        windowHeight: el.scrollHeight,
+      });
+      const nomeFicheiro = `grelha-${MESES[m]}-${y}`
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+      const link = document.createElement("a");
+      link.download = `${nomeFicheiro}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (err) {
+      console.error("Erro ao gerar PNG da grelha:", err);
+      alert("Ocorreu um erro ao gerar a imagem da grelha.");
+    } finally {
+      // 3) Repõe tudo como estava
+      stickyEls.forEach((n, i) => { n.style.position = stickyOriginal[i] || ""; });
+      el.style.maxHeight = prevMaxHeight;
+      el.style.overflow = prevOverflow;
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="p-8 fade-in">
       <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
@@ -888,13 +967,27 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
         <button onClick={()=>changeMonth(-1)} className="p-1.5 rounded-lg border border-[var(--border-c)] bg-white hover:bg-gray-50"><Icon path={ICONS.chevronLeft} size={16} /></button>
         <span className="font-bold text-sm w-32 text-center">{MESES[m]} {y}</span>
         <button onClick={()=>changeMonth(1)} className="p-1.5 rounded-lg border border-[var(--border-c)] bg-white hover:bg-gray-50"><Icon path={ICONS.chevronRight} size={16} /></button>
+        <button
+          onClick={handleDownloadGridPNG}
+          disabled={exporting || loading}
+          className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
+          style={{ background: "var(--accent)" }}
+          title="Captura a grelha inteira (incluindo linhas fora do scroll) e faz download em PNG"
+        >
+          {exporting ? (
+            <Icon path={ICONS.refresh || "M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0114-5.3M20 14a8 8 0 01-14 5.3"} size={14} className="spin" />
+          ) : (
+            <Icon path={ICONS.download || "M12 4v12m0 0l-4-4m4 4l4-4M4 20h16"} size={14} />
+          )}
+          {exporting ? "A gerar imagem…" : "Baixar PNG"}
+        </button>
       </div>
 
       <div className="bg-white rounded-2xl border border-[var(--border-c)] overflow-hidden">
         {loading ? (
           <div className="p-16 text-center text-gray-300 text-sm">A carregar grelha…</div>
         ) : (
-          <div className="overflow-auto grid-scroll" style={{ maxHeight: "72vh" }}>
+          <div ref={gridScrollRef} className="overflow-auto grid-scroll" style={{ maxHeight: "72vh" }}>
             <table className="text-xs w-full">
               <thead>
                 <tr>
