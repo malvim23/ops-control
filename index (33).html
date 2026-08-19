@@ -1,0 +1,1879 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OPS Control — Gestão Operacional</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><rect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%234f6ef7%22/><path d=%22M4 16l4-6 4 4 4-8 4 5%22 stroke=%22white%22 stroke-width=%222.2%22 fill=%22none%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Carrega o Chart.js com CDN de reserva: se cdnjs falhar (bloqueado por
+  // firewall/adblocker), tenta jsdelivr automaticamente antes de desistir.
+  window.__chartLoadFailed = false;
+  (function loadChart(urls) {
+    if (!urls.length) { window.__chartLoadFailed = true; return; }
+    const s = document.createElement("script");
+    s.src = urls[0];
+    s.onerror = function () { loadChart(urls.slice(1)); };
+    document.currentScript.insertAdjacentElement("afterend", s);
+  })([
+    "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js",
+    "https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js",
+    "https://unpkg.com/chart.js@4.4.4/dist/chart.umd.min.js",
+  ]);
+</script>
+<script>
+  // Carrega o html2canvas (usado para exportar a grelha em PNG), com CDN de
+  // reserva caso a principal falhe (firewall/adblocker).
+  window.__html2canvasFailed = false;
+  (function loadHtml2Canvas(urls) {
+    if (!urls.length) { window.__html2canvasFailed = true; return; }
+    const s = document.createElement("script");
+    s.src = urls[0];
+    s.onerror = function () { loadHtml2Canvas(urls.slice(1)); };
+    document.currentScript.insertAdjacentElement("afterend", s);
+  })([
+    "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+    "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+    "https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js",
+  ]);
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  :root{
+    --sidebar-bg:#161d2e;
+    --sidebar-bg-2:#1c2438;
+    --sidebar-active:#4f6ef7;
+    --content-bg:#f4f6fa;
+    --card-bg:#ffffff;
+    --border-c:#e7eaf0;
+    --text-primary:#161d2e;
+    --text-secondary:#6b7280;
+    --accent:#4f6ef7;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--content-bg);color:var(--text-primary);-webkit-font-smoothing:antialiased;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:#d3d8e2;border-radius:6px;}
+  ::-webkit-scrollbar-thumb:hover{background:#b7bdca;}
+  .fade-in{animation:fadeIn .18s ease-out;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+  .spin{animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  table{border-collapse:separate;border-spacing:0;}
+  .grid-scroll{scrollbar-gutter:stable;}
+  .sticky-col{position:sticky;left:0;z-index:5;}
+
+  /* ---------------- Modo Noturno ---------------- */
+  html.dark{
+    --content-bg:#0e1420;
+    --card-bg:#161d2c;
+    --border-c:#262f45;
+    --text-primary:#e7eaf3;
+    --text-secondary:#8892a8;
+  }
+  html.dark body{background:var(--content-bg); color:var(--text-primary);}
+  html.dark ::-webkit-scrollbar-thumb{background:#2e3852;}
+  html.dark ::-webkit-scrollbar-thumb:hover{background:#3c4867;}
+  /* Sobrepõe as classes utilitárias fixas do Tailwind (bg-white, text-gray-*, etc.)
+     para que o resto da app (que já usa var(--card-bg)/var(--border-c) via arbitrary
+     values) fique coerente sem reescrever todo o JSX. */
+  html.dark .bg-white{background-color:var(--card-bg) !important;}
+  html.dark .bg-gray-50{background-color:#1a2233 !important;}
+  html.dark .bg-gray-50\/60:hover, html.dark .hover\:bg-gray-50\/60:hover{background-color:#1a2233 !important;}
+  html.dark .bg-gray-100{background-color:#232c40 !important;}
+  html.dark .text-gray-300{color:#5b657c !important;}
+  html.dark .text-gray-400{color:#7c86a0 !important;}
+  html.dark .text-gray-500{color:#93a0b8 !important;}
+  html.dark .text-gray-600{color:#aab6cc !important;}
+  html.dark .text-\[var\(--text-primary\)\]{color:var(--text-primary) !important;}
+  html.dark input, html.dark select, html.dark textarea{background-color:#1a2233 !important; color:var(--text-primary) !important; border-color:var(--border-c) !important;}
+  html.dark .hover\:bg-gray-50:hover{background-color:#1d2739 !important;}
+  html.dark .hover\:bg-gray-100:hover{background-color:#232c40 !important;}
+  html.dark .bg-black\/40{background-color:rgba(0,0,0,.65) !important;}
+  html.dark .bg-red-50{background-color:#3a1a1e !important;} html.dark .text-red-500{color:#f87171 !important;} html.dark .hover\:bg-red-50:hover{background-color:#3a1a1e !important;}
+  html.dark .bg-emerald-50{background-color:#0f2b23 !important;} html.dark .text-emerald-600{color:#34d399 !important;}
+  html.dark .bg-teal-50{background-color:#0c2b29 !important;} html.dark .text-teal-600{color:#2dd4bf !important;}
+  html.dark .bg-amber-50{background-color:#302410 !important;} html.dark .text-amber-600{color:#fbbf24 !important;}
+  html.dark .bg-indigo-50{background-color:#1e2140 !important;} html.dark .text-indigo-600{color:#818cf8 !important;}
+  html.dark .divide-\[var\(--border-c\)\] > :not([hidden]) ~ :not([hidden]){border-color:var(--border-c) !important;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/plain" id="app-source">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+/* ---------------------------------------------------------------------- */
+/* ErrorBoundary — evita tela branca: se qualquer parte da app rebentar,  */
+/* mostra o erro em vez de desmontar tudo em silêncio.                    */
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Erro capturado pelo ErrorBoundary:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#161d2e",padding:"24px",fontFamily:"Inter,system-ui,sans-serif"}}>
+          <div style={{background:"#fff",borderRadius:"16px",padding:"32px",maxWidth:"560px",width:"100%",boxShadow:"0 20px 40px rgba(0,0,0,.3)"}}>
+            <h2 style={{margin:"0 0 12px",color:"#e0293b",fontSize:"18px"}}>Ocorreu um erro ao carregar a aplicação</h2>
+            <p style={{margin:"0 0 12px",color:"#6b7280",fontSize:"13px"}}>Isto evita a tela branca — o detalhe técnico abaixo ajuda a corrigir a causa.</p>
+            <pre style={{whiteSpace:"pre-wrap",wordBreak:"break-word",background:"#f4f6fa",padding:"12px",borderRadius:"8px",fontSize:"12px",color:"#161d2e",maxHeight:"260px",overflow:"auto"}}>{String(this.state.error && (this.state.error.stack || this.state.error.message || this.state.error))}</pre>
+            <button onClick={() => window.location.reload()} style={{marginTop:"16px",background:"#4f6ef7",color:"#fff",border:"none",borderRadius:"8px",padding:"10px 16px",fontSize:"13px",fontWeight:600,cursor:"pointer"}}>Recarregar</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Firebase config — substitui pelos valores do teu projeto Firebase      */
+/* ---------------------------------------------------------------------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyAbdVNeatPAE0VmsNCnebVSz28fXf_QdmM",
+  authDomain: "presencasde.firebaseapp.com",
+  databaseURL: "https://presencasde-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "presencasde",
+  storageBucket: "presencasde.firebasestorage.app",
+  messagingSenderId: "1050653661373",
+  appId: "1:1050653661373:web:d0ef28b1bf218b7654bfd4"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+// Cache local persistente -> reduz leituras repetidas ao Firestore (poupa dados)
+try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) {}
+
+/* ---------------------------------------------------------------------- */
+/* Constantes                                                             */
+/* ---------------------------------------------------------------------- */
+const MESES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const DIAS_SEMANA = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+const DIAS_SEMANA_FULL = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+
+const STATUS_OPTIONS = [
+  { value: "",               label: "—",           bg: "#f3f4f6", fg: "#9ca3af", dot: "#d1d5db" },
+  { value: "OK",              label: "OK",           bg: "#d1fae5", fg: "#065f46", dot: "#22c55e" },
+  { value: "Falta",           label: "Falta",        bg: "#fee2e2", fg: "#991b1b", dot: "#ef4444" },
+  { value: "Meia Falta",      label: "Meia Falta",   bg: "#fee2e2", fg: "#b45309", dot: "#f97316" },
+  { value: "Formação",        label: "Formação",     bg: "#e0e7ff", fg: "#3730a3", dot: "#3b82f6" },
+  { value: "Backup Interno",  label: "Backup Int.",  bg: "#ccfbf1", fg: "#0f766e", dot: "#0d9488" },
+  { value: "Backup Externo",  label: "Backup Ext.",  bg: "#fef3c7", fg: "#92400e", dot: "#f59e0b" },
+  { value: "Folga",           label: "Folga",        bg: "#eef0f4", fg: "#4b5563", dot: "#9ca3af" },
+  { value: "Baixa",           label: "Baixa",        bg: "#ede9fe", fg: "#6d28d9", dot: "#a855f7" },
+];
+const statusMeta = (v) => STATUS_OPTIONS.find(s => s.value === v) || STATUS_OPTIONS[0];
+
+const STORE_COLORS = ["#9ca3af","#8b5cf6","#ec4899","#22c55e","#eab308","#fb7185","#1e3a5f","#06b6d4","#f472b6","#3b82f6","#f97316","#14b8a6","#ef4444","#6366f1","#84cc16"];
+const CLIENT_COLORS = ["#4f6ef7","#ec4899","#22c55e","#f97316","#8b5cf6","#06b6d4","#ef4444","#eab308","#14b8a6","#6366f1"];
+
+const CATEGORIAS = ["DISTRIBUICAO","LOGISTICA","MISTA"];
+const TURNOS = ["Part Time","Full Time"];
+const FUNCOES = ["Motorista","Ajudante","Supervisor","Coordenador"];
+
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const pad2 = (n) => String(n).padStart(2, "0");
+const monthKey = (y, m) => `${y}-${pad2(m + 1)}`;
+const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
+const fmtEUR = (n) => `€${(n || 0).toLocaleString("pt-PT")}`;
+const cellKey = (empId, day) => `${empId}_${day}`;
+
+/* ---------------------------------------------------------------------- */
+/* Ícones (inline SVG, sem dependências externas -> poupa dados)          */
+/* ---------------------------------------------------------------------- */
+const Icon = ({ path, size = 18, className = "" }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {path}
+  </svg>
+);
+const ICONS = {
+  dashboard: <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></>,
+  grid: <><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></>,
+  users: <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>,
+  store: <><path d="M3 9l1-5h16l1 5"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M9 21v-6h6v6"/></>,
+  backup: <><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></>,
+  chevronLeft: <polyline points="15 18 9 12 15 6"/>,
+  chevronRight: <polyline points="9 18 15 12 9 6"/>,
+  chevronDown: <polyline points="6 9 12 15 18 9"/>,
+  search: <><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></>,
+  bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></>,
+  plus: <><path d="M12 5v14M5 12h14"/></>,
+  edit: <><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></>,
+  trash: <><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></>,
+  x: <><path d="M18 6L6 18M6 6l12 12"/></>,
+  check: <polyline points="20 6 9 17 4 12"/>,
+  alert: <><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></>,
+  swap: <><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></>,
+  shield: <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/>,
+  userX: <><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M18 8l5 5M23 8l-5 5"/></>,
+  filter: <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>,
+  logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><path d="M21 12H9"/></>,
+  car: <><path d="M5 17a2 2 0 1 0 4 0 2 2 0 0 0-4 0zM15 17a2 2 0 1 0 4 0 2 2 0 0 0-4 0z"/><path d="M5 17H3v-5l2-5h11l3 5h1a2 2 0 0 1 2 2v3h-2"/></>,
+  history: <><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 8 8 8"/><polyline points="12 7 12 12 16 14"/></>,
+  sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></>,
+  moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>,
+  plusCircle: <><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></>,
+  minusCircle: <><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></>,
+};
+
+/* ---------------------------------------------------------------------- */
+/* Firestore helpers                                                      */
+/* ---------------------------------------------------------------------- */
+const col = (name) => db.collection(name);
+
+// Histórico de edição — regista cada ação relevante feita na app (auditLog).
+// Nunca bloqueia a ação principal: falhas de escrita no log são silenciosas.
+async function logHistory(acao, entidade, alvo, detalhes) {
+  let userName = "Utilizador";
+  try {
+    const raw = localStorage.getItem("opsUser");
+    if (raw) userName = JSON.parse(raw).displayName || userName;
+  } catch (e) {}
+  try {
+    await col("auditLog").add({
+      timestamp: Date.now(),
+      user: userName,
+      acao,        // "Criou" | "Editou" | "Eliminou"
+      entidade,     // "Colaborador" | "Loja" | "Cliente" | "Backup" | "Grelha"
+      alvo: alvo || "",
+      detalhes: detalhes || "",
+    });
+  } catch (e) {}
+}
+
+/* ---------------------------------------------------------------------- */
+/* Componentes utilitários                                                */
+/* ---------------------------------------------------------------------- */
+function Modal({ title, onClose, children, width = "max-w-lg" }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 fade-in" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={`bg-white rounded-2xl shadow-2xl w-full ${width} max-h-[90vh] overflow-y-auto`}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-c)] sticky top-0 bg-white rounded-t-2xl">
+          <h3 className="text-lg font-bold">{title}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><Icon path={ICONS.x} size={18} /></button>
+        </div>
+        <div className="p-6">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div className="mb-4">
+      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{label}</label>
+      {children}
+    </div>
+  );
+}
+const inputCls = "w-full px-3 py-2 rounded-lg border border-[var(--border-c)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] bg-white";
+
+function StatCard({ icon, label, value, sub, iconBg = "#eef1ff", iconColor = "#4f6ef7" }) {
+  return (
+    <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
+      <div className="flex items-start justify-between mb-4">
+        <span className="text-[11px] font-bold tracking-wider text-gray-400 uppercase">{label}</span>
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: iconBg, color: iconColor }}>
+          <Icon path={icon} size={16} />
+        </div>
+      </div>
+      <div className="text-2xl font-extrabold leading-none mb-1">{value}</div>
+      <div className="text-xs text-gray-400">{sub}</div>
+    </div>
+  );
+}
+
+function ConfirmDelete({ what, onConfirm, onCancel }) {
+  return (
+    <Modal title="Confirmar eliminação" onClose={onCancel} width="max-w-sm">
+      <p className="text-sm text-gray-600 mb-5">Tens a certeza que queres eliminar <b>{what}</b>? Esta ação não pode ser revertida.</p>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancelar</button>
+        <button onClick={onConfirm} className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-red-500 hover:bg-red-600">Eliminar</button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Login                                                                  */
+/* ---------------------------------------------------------------------- */
+function LoginScreen({ onLogin }) {
+  const [name, setName] = useState("");
+  const [err, setErr] = useState("");
+  const submit = (e) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) { setErr("Introduz o teu nome para continuar."); return; }
+    onLogin(trimmed);
+  };
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(135deg,#161d2e,#232e4a)" }}>
+      <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-sm text-center fade-in">
+        <div className="w-14 h-14 rounded-xl mx-auto mb-4 flex items-center justify-center" style={{ background: "var(--accent)" }}>
+          <Icon path={ICONS.grid} size={26} className="text-white" />
+        </div>
+        <h1 className="text-xl font-extrabold mb-1">OPS Control</h1>
+        <p className="text-sm text-gray-500 mb-8">Gestão Operacional</p>
+        <form onSubmit={submit} className="text-left">
+          <label className="text-xs font-bold text-gray-400 mb-1.5 block">O TEU NOME</label>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => { setName(e.target.value); if (err) setErr(""); }}
+            placeholder="Ex: Ana Silva"
+            className="w-full border border-[var(--border-c)] rounded-lg py-2.5 px-3 text-sm mb-4 outline-none focus:border-[var(--accent)]"
+          />
+          <button type="submit" className="w-full flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white hover:opacity-90" style={{ background: "var(--accent)" }}>
+            Entrar
+          </button>
+        </form>
+        {err && <p className="text-xs text-red-500 mt-3">{err}</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Sidebar + Header                                                       */
+/* ---------------------------------------------------------------------- */
+function Sidebar({ view, setView, collapsed, setCollapsed, user, onLogout }) {
+  const items = [
+    { id: "dashboard", label: "Dashboard", icon: ICONS.dashboard },
+    { id: "grid",      label: "Grelha Operacional", icon: ICONS.grid },
+    { id: "employees", label: "Colaboradores", icon: ICONS.users },
+    { id: "stores",    label: "Lojas", icon: ICONS.store },
+    { id: "backups",   label: "Backups", icon: ICONS.backup },
+    { id: "history",   label: "Histórico", icon: ICONS.history },
+  ];
+  return (
+    <div className={`h-screen sticky top-0 flex flex-col text-white transition-all duration-200 ${collapsed ? "w-[76px]" : "w-[230px]"}`} style={{ background: "var(--sidebar-bg)" }}>
+      <div className="flex items-center gap-2.5 px-5 py-5">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--accent)" }}>
+          <Icon path={ICONS.grid} size={16} />
+        </div>
+        {!collapsed && (
+          <div className="leading-tight">
+            <div className="text-sm font-extrabold">OPS Control</div>
+            <div className="text-[10px] text-gray-400 tracking-wide">GESTÃO OPERACIONAL</div>
+          </div>
+        )}
+      </div>
+      <nav className="flex-1 px-3 mt-2 space-y-1">
+        {items.map((it) => (
+          <button key={it.id} onClick={() => setView(it.id)}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${view === it.id ? "text-white" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
+            style={view === it.id ? { background: "var(--sidebar-active)" } : {}}>
+            <Icon path={it.icon} size={17} />
+            {!collapsed && <span>{it.label}</span>}
+          </button>
+        ))}
+      </nav>
+      <div className="px-3 pb-3">
+        <button onClick={onLogout} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5">
+          <Icon path={ICONS.logout} size={17} />
+          {!collapsed && <span>Terminar sessão</span>}
+        </button>
+        <button onClick={() => setCollapsed(!collapsed)} className="w-full flex items-center gap-3 px-3 py-2 mt-1 rounded-lg text-xs font-medium text-gray-500 hover:text-white">
+          <Icon path={collapsed ? ICONS.chevronRight : ICONS.chevronLeft} size={14} />
+          {!collapsed && <span>Recolher</span>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Header({ user, dark, onToggleDark }) {
+  const today = new Date();
+  const label = today.toLocaleDateString("pt-PT", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+  const cap = label.charAt(0).toUpperCase() + label.slice(1).replace(/ de /g, " ");
+  const initials = (user?.displayName || user?.email || "AD").split(" ").map(s=>s[0]).join("").slice(0,2).toUpperCase();
+  return (
+    <div className="flex items-center justify-between px-8 py-4 bg-white border-b border-[var(--border-c)] sticky top-0 z-30">
+      <div className="flex items-center gap-2 text-sm text-gray-600 font-medium">
+        <Icon path={<><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></>} size={16} />
+        {cap}
+      </div>
+      <div className="flex items-center gap-4">
+        <button onClick={onToggleDark} title={dark ? "Modo claro" : "Modo noturno"} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+          <Icon path={dark ? ICONS.sun : ICONS.moon} size={18} />
+        </button>
+        <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><Icon path={ICONS.search} size={18} /></button>
+        <button className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 relative"><Icon path={ICONS.bell} size={18} /></button>
+        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "var(--accent)" }}>{initials}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Chart wrapper (Chart.js)                                               */
+/* ---------------------------------------------------------------------- */
+function ChartCanvas({ type, data, options, height = 240 }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+  const [ready, setReady] = useState(typeof window.Chart !== "undefined");
+  const [failed, setFailed] = useState(false);
+
+  // Se o Chart.js ainda não carregou (script externo lento/bloqueado),
+  // aguarda em vez de rebentar com "Chart is not defined".
+  useEffect(() => {
+    if (ready) return;
+    let tries = 0;
+    const id = setInterval(() => {
+      tries++;
+      if (typeof window.Chart !== "undefined") {
+        setReady(true);
+        clearInterval(id);
+      } else if (window.__chartLoadFailed || tries > 100) { // ~10s
+        setFailed(true);
+        clearInterval(id);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [ready]);
+
+  useEffect(() => {
+    if (!ready || !canvasRef.current) return;
+    if (chartRef.current) chartRef.current.destroy();
+    try {
+      chartRef.current = new Chart(canvasRef.current.getContext("2d"), { type, data, options });
+    } catch (e) {
+      console.error("Erro ao desenhar gráfico:", e);
+      setFailed(true);
+    }
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [ready, JSON.stringify(data), type]);
+
+  if (failed) {
+    return (
+      <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af", fontSize: 12, textAlign: "center", padding: 12 }}>
+        Gráfico indisponível (falha ao carregar Chart.js — verifica a ligação à internet)
+      </div>
+    );
+  }
+  return <div style={{ height }}><canvas ref={canvasRef}></canvas></div>;
+}
+
+/* ---------------------------------------------------------------------- */
+/* DASHBOARD                                                              */
+/* ---------------------------------------------------------------------- */
+function DashboardView({ stores, employees, getScheduleForMonth, monthOptions }) {
+  const [tab, setTab] = useState("geral");
+  const now = new Date();
+  const [selMonth, setSelMonth] = useState(monthKey(now.getFullYear(), now.getMonth()));
+  const [schedule, setSchedule] = useState({});
+  const [backups, setBackups] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    getScheduleForMonth(selMonth).then((s) => { if (alive) { setSchedule(s); setLoading(false); } });
+    const [y, m] = selMonth.split("-").map(Number);
+    const from = `${selMonth}-01`;
+    const to = `${monthKey(m === 12 ? y + 1 : y, m === 12 ? 0 : m)}-01`;
+    const unsub = col("backups").where("data", ">=", from).where("data", "<", to).onSnapshot((snap) => {
+      if (!alive) return;
+      setBackups(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => { alive = false; unsub(); };
+  }, [selMonth]);
+
+  const activeEmployees = useMemo(() => employees.filter(e => e.estado !== "Desligado"), [employees]);
+
+  const stats = useMemo(() => {
+    let ok = 0, falta = 0, meiaFalta = 0, backupInt = 0, backupExt = 0, total = 0, folga = 0, formacao = 0, baixa = 0;
+    const porLoja = {}; const porOperador = {};
+    Object.entries(schedule).forEach(([key, val]) => {
+      if (!val) return;
+      const empId = key.split("_")[0];
+      const emp = employees.find(e => e.id === empId);
+      const storeName = emp ? (stores.find(s => s.id === emp.lojaId)?.nome || "—") : "—";
+      total++;
+      if (val === "OK") ok++;
+      else if (val === "Falta") { falta++; porLoja[storeName] = (porLoja[storeName]||0)+1; porOperador[emp?.nome||"—"]=(porOperador[emp?.nome||"—"]||0)+1; }
+      else if (val === "Meia Falta") { meiaFalta++; porLoja[storeName] = (porLoja[storeName]||0)+1; porOperador[emp?.nome||"—"]=(porOperador[emp?.nome||"—"]||0)+1; }
+      else if (val === "Backup Interno") backupInt++;
+      else if (val === "Backup Externo") backupExt++;
+      else if (val === "Folga") folga++;
+      else if (val === "Formação") formacao++;
+      else if (val === "Baixa") baixa++;
+    });
+    const presenceBase = ok + falta + meiaFalta + backupInt + backupExt;
+    const presenca = presenceBase > 0 ? Math.round((ok / presenceBase) * 1000) / 10 : 0;
+    const lojaEntries = Object.entries(porLoja).sort((a,b)=>b[1]-a[1]);
+    const opEntries = Object.entries(porOperador).sort((a,b)=>b[1]-a[1]);
+    const lojaMax = lojaEntries[0] || [stores[0]?.nome || "—", 0];
+    const lojaMin = [...lojaEntries].sort((a,b)=>a[1]-b[1])[0] || lojaMax;
+    const opMax = opEntries[0] || ["—", 0];
+    const custoBackups = backups.reduce((s, b) => s + (Number(b.custo) || 0), 0);
+    return { ok, falta, meiaFalta, backupInt, backupExt, folga, formacao, baixa, presenca, lojaMax, lojaMin, opMax, custoBackups, porLoja };
+  }, [schedule, employees, stores, backups]);
+
+  const faltasPorLojaChart = useMemo(() => {
+    const names = stores.map(s => s.nome);
+    const countFor = (statusVal) => stores.map(s => {
+      let c = 0;
+      Object.entries(schedule).forEach(([key, val]) => {
+        if (val !== statusVal) return;
+        const empId = key.split("_")[0];
+        const emp = employees.find(e => e.id === empId);
+        if (emp && emp.lojaId === s.id) c++;
+      });
+      return c;
+    });
+    return {
+      labels: names,
+      datasets: [
+        { label: "Falta", data: countFor("Falta"), backgroundColor: "#ef4444" },
+        { label: "Meia Falta", data: countFor("Meia Falta"), backgroundColor: "#f59e0b" },
+        { label: "Backup Int.", data: countFor("Backup Interno"), backgroundColor: "#14b8a6" },
+        { label: "Backup Ext.", data: countFor("Backup Externo"), backgroundColor: "#fbbf24" },
+        { label: "Baixa", data: countFor("Baixa"), backgroundColor: "#a855f7" },
+      ],
+    };
+  }, [schedule, stores, employees]);
+
+  const distribChart = useMemo(() => ({
+    labels: ["OK","Falta","Meia Falta","Formação","Backup Int.","Backup Ext.","Folga","Baixa"],
+    datasets: [{
+      data: [stats.ok, stats.falta, stats.meiaFalta, stats.formacao, stats.backupInt, stats.backupExt, stats.folga, stats.baixa],
+      backgroundColor: ["#22c55e","#ef4444","#f97316","#3b82f6","#0d9488","#f59e0b","#9ca3af","#a855f7"],
+      borderWidth: 0,
+    }],
+  }), [stats]);
+
+  const [y, m] = selMonth.split("-").map(Number);
+  const nDays = daysInMonth(y, m - 1);
+  const weeklyChart = useMemo(() => {
+    const weeks = {};
+    for (let d = 1; d <= nDays; d++) {
+      const wk = Math.ceil(d / 7);
+      let f = 0;
+      employees.forEach(e => { if (schedule[cellKey(e.id, d)] === "Falta" || schedule[cellKey(e.id, d)] === "Meia Falta") f++; });
+      weeks[wk] = (weeks[wk] || 0) + f;
+    }
+    return {
+      labels: Object.keys(weeks).map(w => `Semana ${w}`),
+      datasets: [{ label: "Faltas", data: Object.values(weeks), borderColor: "#4f6ef7", backgroundColor: "rgba(79,110,247,0.12)", fill: true, tension: 0.35, pointRadius: 3 }],
+    };
+  }, [schedule, employees, nDays]);
+
+  const heatmap = useMemo(() => {
+    const counts = [0,0,0,0,0,0,0];
+    for (let d = 1; d <= nDays; d++) {
+      const wd = new Date(y, m - 1, d).getDay();
+      employees.forEach(e => { if (schedule[cellKey(e.id, d)] === "Falta" || schedule[cellKey(e.id, d)] === "Meia Falta") counts[wd]++; });
+    }
+    return counts;
+  }, [schedule, employees, nDays, y, m]);
+  const maxHeat = Math.max(1, ...heatmap);
+
+  const monthLabel = `${MESES[m - 1]} ${y}`;
+
+  return (
+    <div className="p-8 fade-in">
+      <h1 className="text-2xl font-extrabold">Dashboard Operacional</h1>
+      <p className="text-sm text-gray-400 mb-5">Análise completa de presenças, faltas e backups</p>
+
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit mb-5">
+        {[["geral","Visão Geral"],["mensal","Comparativo Mensal"],["semanal","Análise Semanal"]].map(([k,l]) => (
+          <button key={k} onClick={()=>setTab(k)} className={`px-4 py-1.5 rounded-md text-sm font-semibold ${tab===k ? "bg-white shadow text-[var(--text-primary)]" : "text-gray-500"}`}>{l}</button>
+        ))}
+      </div>
+
+      {tab === "geral" && (
+        <>
+          <div className="mb-5 flex items-center gap-2">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">Mês em análise:</span>
+            <select value={selMonth} onChange={(e)=>setSelMonth(e.target.value)} className="border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm font-semibold bg-white">
+              {monthOptions.map(mk => { const [yy,mm]=mk.split("-").map(Number); return <option key={mk} value={mk}>{MESES[mm-1]} {yy}</option>; })}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <StatCard icon={ICONS.check} label="Taxa de Presença" value={`${stats.presenca}%`} sub={`mês ${selMonth}`} iconBg="#e6f9f0" iconColor="#10b981" />
+            <StatCard icon={ICONS.alert} label="Faltas (F+MF)" value={stats.falta + stats.meiaFalta} sub={`${stats.falta} completas · ${stats.meiaFalta} meias`} iconBg="#fef2f2" iconColor="#ef4444" />
+            <StatCard icon={ICONS.swap} label="Backup Interno" value={stats.backupInt} sub="cobertura interna" iconBg="#f0fdfa" iconColor="#14b8a6" />
+            <StatCard icon={ICONS.shield} label="Backup Externo" value={stats.backupExt} sub="cobertura externa" iconBg="#fffbeb" iconColor="#f59e0b" />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <StatCard icon={ICONS.store} label="Loja + Faltas" value={stats.lojaMax[0]} sub={`${stats.lojaMax[1]} ausências`} iconBg="#eef1ff" iconColor="#4f6ef7" />
+            <StatCard icon={ICONS.dashboard} label="Loja − Faltas" value={stats.lojaMin[0]} sub={`${stats.lojaMin[1]} ausências`} iconBg="#eef1ff" iconColor="#4f6ef7" />
+            <StatCard icon={ICONS.userX} label="Operador + Faltas" value={stats.opMax[1] > 0 ? stats.opMax[0] : "—"} sub={`${stats.opMax[1]} faltas`} iconBg="#f5f3ff" iconColor="#8b5cf6" />
+            <StatCard icon={ICONS.users} label="Custo Backups" value={fmtEUR(stats.custoBackups)} sub="custo total do mês" iconBg="#f5f3ff" iconColor="#8b5cf6" />
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-5 mb-5">
+            <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
+              <h3 className="text-sm font-bold mb-3">Faltas por Loja (todas as ausências)</h3>
+              {loading ? <div className="h-[240px] flex items-center justify-center text-gray-300 text-sm">A carregar…</div> :
+                <ChartCanvas type="bar" data={faltasPorLojaChart} options={{ responsive:true, maintainAspectRatio:false, scales:{ x:{stacked:true, grid:{display:false}}, y:{stacked:true, beginAtZero:true, ticks:{precision:0}} }, plugins:{legend:{position:"bottom", labels:{boxWidth:10, font:{size:11}}}} }} />}
+            </div>
+            <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
+              <h3 className="text-sm font-bold mb-3">Distribuição de Status</h3>
+              {loading ? <div className="h-[240px] flex items-center justify-center text-gray-300 text-sm">A carregar…</div> :
+                <ChartCanvas type="doughnut" data={distribChart} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:"right", labels:{boxWidth:10, font:{size:11}}}} }} />}
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-5">
+            <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
+              <h3 className="text-sm font-bold mb-3">Evolução Semanal</h3>
+              <ChartCanvas type="line" data={weeklyChart} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}} }} />
+            </div>
+            <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
+              <h3 className="text-sm font-bold mb-3">Heatmap · Faltas por Dia da Semana</h3>
+              <div className="grid grid-cols-7 gap-2 mt-4">
+                {DIAS_SEMANA.map((d, i) => (
+                  <div key={d} className="text-center">
+                    <div className="text-[11px] text-gray-400 font-semibold mb-1.5">{d}</div>
+                    <div className="rounded-lg h-16 flex items-center justify-center text-sm font-bold"
+                      style={{ background: `rgba(239,68,68,${0.12 + 0.75*(heatmap[i]/maxHeat)})`, color: heatmap[i] > maxHeat*0.55 ? "#fff" : "#991b1b" }}>
+                      {heatmap[i]}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === "mensal" && (
+        <MonthlyComparativeTab monthOptions={monthOptions} getScheduleForMonth={getScheduleForMonth} employees={employees} />
+      )}
+
+      {tab === "semanal" && (
+        <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
+          <h3 className="text-sm font-bold mb-3">Análise Semanal · {monthLabel}</h3>
+          <ChartCanvas type="bar" data={weeklyChart} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}} }} height={320} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MonthlyComparativeTab({ monthOptions, getScheduleForMonth, employees }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const last6 = monthOptions.slice(-6);
+    Promise.all(last6.map(mk => getScheduleForMonth(mk))).then((results) => {
+      if (!alive) return;
+      const labels = last6.map(mk => { const [y,m]=mk.split("-").map(Number); return `${MESES[m-1].slice(0,3)}/${String(y).slice(2)}`; });
+      const presenca = results.map(sched => {
+        let ok=0, base=0;
+        Object.values(sched).forEach(v => {
+          if (["OK","Falta","Meia Falta","Backup Interno","Backup Externo"].includes(v)) { base++; if (v==="OK") ok++; }
+        });
+        return base > 0 ? Math.round((ok/base)*1000)/10 : 0;
+      });
+      const faltas = results.map(sched => Object.values(sched).filter(v => v==="Falta"||v==="Meia Falta").length);
+      setData({ labels, presenca, faltas });
+    });
+    return () => { alive = false; };
+  }, [monthOptions]);
+
+  if (!data) return <div className="text-sm text-gray-400 p-6">A carregar comparativo…</div>;
+
+  return (
+    <div className="grid md:grid-cols-2 gap-5">
+      <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
+        <h3 className="text-sm font-bold mb-3">Taxa de Presença · últimos {data.labels.length} meses</h3>
+        <ChartCanvas type="line" data={{ labels: data.labels, datasets:[{ label:"Presença %", data:data.presenca, borderColor:"#10b981", backgroundColor:"rgba(16,185,129,0.12)", fill:true, tension:0.35 }] }} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, max:100}} }} />
+      </div>
+      <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
+        <h3 className="text-sm font-bold mb-3">Total de Faltas · últimos {data.labels.length} meses</h3>
+        <ChartCanvas type="bar" data={{ labels: data.labels, datasets:[{ label:"Faltas", data:data.faltas, backgroundColor:"#ef4444" }] }} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}} }} />
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* GRELHA OPERACIONAL                                                     */
+/* ---------------------------------------------------------------------- */
+function CellStatusMenu({ anchorRect, value, onSelect, onClose }) {
+  const [pos, setPos] = useState(null);
+
+  useEffect(() => {
+    const menuW = 190;
+    const menuH = STATUS_OPTIONS.filter(o => o.value).length * 38 + 60;
+    let top = anchorRect.bottom + 6;
+    let left = anchorRect.left;
+    if (left + menuW > window.innerWidth - 8) left = window.innerWidth - menuW - 8;
+    if (top + menuH > window.innerHeight - 8) top = anchorRect.top - menuH - 6;
+    setPos({ top, left, width: Math.max(anchorRect.width, menuW) });
+  }, [anchorRect]);
+
+  useEffect(() => {
+    const onKey = (ev) => { if (ev.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (!pos) return null;
+
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onMouseDown={onClose}></div>
+      <div className="fixed z-50 bg-white rounded-xl shadow-2xl border border-[var(--border-c)] py-1.5 fade-in" style={{ top: pos.top, left: pos.left, width: pos.width }} onMouseDown={(e)=>e.stopPropagation()}>
+        {STATUS_OPTIONS.filter(o => o.value).map(o => (
+          <button key={o.value} onClick={() => onSelect(o.value)}
+            className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-left hover:bg-gray-50 ${value === o.value ? "bg-gray-50 font-semibold" : ""}`}>
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: o.dot }}></span>
+            <span>{o.label}</span>
+          </button>
+        ))}
+        <div className="border-t border-[var(--border-c)] mt-1 pt-1">
+          <button onClick={() => onSelect("")} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-left text-gray-400 hover:bg-gray-50">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "#e5e7eb" }}></span>
+            <span>Limpar</span>
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
+function CellStoreMenu({ anchorRect, options, value, onSelect, onClose }) {
+  const [pos, setPos] = useState(null);
+
+  useEffect(() => {
+    const menuW = 210;
+    const menuH = Math.min(options.length, 8) * 38 + 60;
+    let top = anchorRect.bottom + 6;
+    let left = anchorRect.left;
+    if (left + menuW > window.innerWidth - 8) left = window.innerWidth - menuW - 8;
+    if (top + menuH > window.innerHeight - 8) top = anchorRect.top - menuH - 6;
+    setPos({ top, left, width: Math.max(anchorRect.width, menuW) });
+  }, [anchorRect]);
+
+  useEffect(() => {
+    const onKey = (ev) => { if (ev.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (!pos) return null;
+
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onMouseDown={onClose}></div>
+      <div className="fixed z-50 bg-white rounded-xl shadow-2xl border border-[var(--border-c)] py-1.5 fade-in max-h-72 overflow-y-auto" style={{ top: pos.top, left: pos.left, width: pos.width }} onMouseDown={(e)=>e.stopPropagation()}>
+        <div className="px-3.5 pb-1.5 pt-0.5 text-[10px] font-bold text-gray-400 uppercase tracking-wide">Foi fazer backup em:</div>
+        {options.map(o => (
+          <button key={o.id} onClick={() => onSelect(o.id)}
+            className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-left hover:bg-gray-50 ${value === o.id ? "bg-gray-50 font-semibold" : ""}`}>
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: o.cor }}></span>
+            <span className="truncate">{o.nome}</span>
+          </button>
+        ))}
+        {options.length === 0 && <div className="px-3.5 py-2 text-sm text-gray-400">Sem outras lojas neste cliente.</div>}
+        <div className="border-t border-[var(--border-c)] mt-1 pt-1">
+          <button onClick={() => onSelect("")} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-left text-gray-400 hover:bg-gray-50">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "#e5e7eb" }}></span>
+            <span>Limpar</span>
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
+function GridView({ stores, employees, clients, getScheduleForMonth, saveCellStatus }) {
+  const now = new Date();
+  const [y, setY] = useState(now.getFullYear());
+  const [m, setM] = useState(now.getMonth());
+  const [schedule, setSchedule] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [fLoja, setFLoja] = useState("");
+  const [fCliente, setFCliente] = useState("");
+  const [fTurno, setFTurno] = useState("");
+  const [fStatus, setFStatus] = useState("");
+  const [editingCell, setEditingCell] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const gridScrollRef = useRef(null);
+
+  const mk = monthKey(y, m);
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    getScheduleForMonth(mk).then((s) => { if (alive) { setSchedule(s); setLoading(false); } });
+    return () => { alive = false; };
+  }, [mk]);
+
+  const nDays = daysInMonth(y, m);
+  const days = Array.from({ length: nDays }, (_, i) => i + 1);
+
+  const activeEmployees = useMemo(() => employees.filter(e => e.estado !== "Desligado"), [employees]);
+  const storesSorted = useMemo(() => [...stores].sort((a,b)=> (a.ordem??0)-(b.ordem??0) || a.nome.localeCompare(b.nome)), [stores]);
+
+  const visibleStores = storesSorted.filter(s => (!fLoja || s.id === fLoja) && (!fCliente || s.clienteId === fCliente));
+  const empByStore = (storeId) => activeEmployees.filter(e => e.lojaId === storeId && (!fTurno || e.turno === fTurno));
+  const storeById = (id) => stores.find(s => s.id === id);
+
+  // Loja "Backup Interno" (pool): a célula não mostra status, mostra a lista de lojas do mesmo cliente
+  const poolOptionsFor = (store) => stores
+    .filter(s => s.id !== store.id && s.clienteId && s.clienteId === store.clienteId)
+    .sort((a,b)=>a.nome.localeCompare(b.nome))
+    .map(s => ({ id: s.id, nome: s.nome, cor: s.cor }));
+
+  // Folga fixa: se a célula não tem valor guardado e o colaborador tem esse dia da semana marcado
+  // como folga fixa no cadastro, mostra "Folga" automaticamente (sem precisar preencher célula a célula).
+  const effectiveValue = (emp, day) => {
+    const saved = schedule[cellKey(emp.id, day)];
+    if (saved) return saved;
+    const dow = new Date(y, m, day).getDay();
+    if ((emp.folgaFixa || []).includes(dow)) return "Folga";
+    return "";
+  };
+
+  const setCell = async (empId, day, value) => {
+    const prevVal = schedule[cellKey(empId, day)] || "";
+    setSchedule(prev => ({ ...prev, [cellKey(empId, day)]: value }));
+    setEditingCell(null);
+    await saveCellStatus(mk, empId, day, value);
+    const emp = employees.find(x => x.id === empId);
+    const store = editingCell?.store;
+    const fromLabel = store?.tipo === "backup_pool" ? (storeById(prevVal)?.nome || (prevVal || "—")) : (statusMeta(prevVal).label);
+    const toLabel = store?.tipo === "backup_pool" ? (storeById(value)?.nome || (value || "—")) : (statusMeta(value).label);
+    logHistory("Editou", "Grelha", emp?.nome || "—", `${MESES[m]}/${y}, dia ${day}: "${fromLabel}" → "${toLabel}"`);
+  };
+
+  const openCellMenu = (e, empId, day, store) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setEditingCell({ key: cellKey(empId, day), empId, day, rect, isPool: store.tipo === "backup_pool", store });
+  };
+
+  const changeMonth = (delta) => {
+    let nm = m + delta, ny = y;
+    if (nm < 0) { nm = 11; ny -= 1; }
+    if (nm > 11) { nm = 0; ny += 1; }
+    setM(nm); setY(ny);
+  };
+
+  // Captura a grelha inteira (incluindo cabeçalhos fixos e todas as linhas,
+  // mesmo as que estão fora da área visível de scroll) e faz download em PNG.
+  const handleDownloadGridPNG = async () => {
+    const el = gridScrollRef.current;
+    if (!el) return;
+    if (typeof html2canvas === "undefined") {
+      alert("Não foi possível gerar a imagem: a biblioteca de exportação ainda não carregou. Verifica a ligação à internet e tenta novamente em alguns segundos.");
+      return;
+    }
+
+    setExporting(true);
+
+    // 1) Remove temporariamente o limite de altura e o scroll do contentor,
+    //    para que TODAS as linhas (mesmo as que estão fora do scroll) fiquem
+    //    presentes no layout normal do documento.
+    const prevMaxHeight = el.style.maxHeight;
+    const prevOverflow = el.style.overflow;
+    el.style.maxHeight = "none";
+    el.style.overflow = "visible";
+
+    // 2) Neutraliza position:sticky (cabeçalhos e coluna "DIA") — sem um
+    //    contentor com scroll, o sticky pode "colar-se" ao viewport e
+    //    estragar a captura. Guarda o valor original de cada elemento para
+    //    repor depois.
+    const stickyEls = Array.from(el.querySelectorAll("*")).filter(
+      (n) => getComputedStyle(n).position === "sticky"
+    );
+    const stickyOriginal = stickyEls.map((n) => n.style.position);
+    stickyEls.forEach((n) => { n.style.position = "static"; });
+
+    // Força reflow antes de capturar
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    try {
+      const canvas = await html2canvas(el, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        useCORS: true,
+        windowWidth: el.scrollWidth,
+        windowHeight: el.scrollHeight,
+      });
+      const nomeFicheiro = `grelha-${MESES[m]}-${y}`
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+      const link = document.createElement("a");
+      link.download = `${nomeFicheiro}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (err) {
+      console.error("Erro ao gerar PNG da grelha:", err);
+      alert("Ocorreu um erro ao gerar a imagem da grelha.");
+    } finally {
+      // 3) Repõe tudo como estava
+      stickyEls.forEach((n, i) => { n.style.position = stickyOriginal[i] || ""; });
+      el.style.maxHeight = prevMaxHeight;
+      el.style.overflow = prevOverflow;
+      setExporting(false);
+    }
+  };
+
+  return (
+    <div className="p-8 fade-in">
+      <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold">Grelha Operacional</h1>
+          <p className="text-sm text-gray-400">Escala mensal de presenças por loja e turno</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select value={fCliente} onChange={(e)=>setFCliente(e.target.value)} className="border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm bg-white font-medium">
+            <option value="">Todos os Clientes</option>
+            {clients.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+          <select value={fLoja} onChange={(e)=>setFLoja(e.target.value)} className="border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm bg-white font-medium">
+            <option value="">Todas as Lojas</option>
+            {storesSorted.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select>
+          <select value={fTurno} onChange={(e)=>setFTurno(e.target.value)} className="border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm bg-white font-medium">
+            <option value="">Todos os Turnos</option>
+            {TURNOS.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select value={fStatus} onChange={(e)=>setFStatus(e.target.value)} className="border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm bg-white font-medium">
+            <option value="">Todos os Status</option>
+            {STATUS_OPTIONS.filter(s=>s.value).map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 mb-3">
+        <button onClick={()=>changeMonth(-1)} className="p-1.5 rounded-lg border border-[var(--border-c)] bg-white hover:bg-gray-50"><Icon path={ICONS.chevronLeft} size={16} /></button>
+        <span className="font-bold text-sm w-32 text-center">{MESES[m]} {y}</span>
+        <button onClick={()=>changeMonth(1)} className="p-1.5 rounded-lg border border-[var(--border-c)] bg-white hover:bg-gray-50"><Icon path={ICONS.chevronRight} size={16} /></button>
+        <button
+          onClick={handleDownloadGridPNG}
+          disabled={exporting || loading}
+          className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
+          style={{ background: "var(--accent)" }}
+          title="Captura a grelha inteira (incluindo linhas fora do scroll) e faz download em PNG"
+        >
+          {exporting ? (
+            <Icon path={ICONS.refresh || "M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0114-5.3M20 14a8 8 0 01-14 5.3"} size={14} className="spin" />
+          ) : (
+            <Icon path={ICONS.download || "M12 4v12m0 0l-4-4m4 4l4-4M4 20h16"} size={14} />
+          )}
+          {exporting ? "A gerar imagem…" : "Baixar PNG"}
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[var(--border-c)] overflow-hidden">
+        {loading ? (
+          <div className="p-16 text-center text-gray-300 text-sm">A carregar grelha…</div>
+        ) : (
+          <div ref={gridScrollRef} className="overflow-auto grid-scroll" style={{ maxHeight: "72vh" }}>
+            <table className="text-xs w-full">
+              <thead>
+                <tr>
+                  <th className="sticky-col bg-white text-left px-3 py-2 border-b border-r border-[var(--border-c)] font-bold text-gray-400 w-16 top-0" style={{position:"sticky", top:0, zIndex:6}}>DIA</th>
+                  {visibleStores.map(s => {
+                    const emps = empByStore(s.id);
+                    if (emps.length === 0) return null;
+                    return (
+                      <th key={s.id} colSpan={emps.length} className="text-center px-2 py-2 border-b border-l border-[var(--border-c)] font-extrabold text-[11px] tracking-wide sticky top-0" style={{ color: s.cor, background: (s.cor||"#999")+"14", position:"sticky", top:0, zIndex:4 }}>
+                        {s.nome.toUpperCase()}
+                      </th>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <th className="sticky-col bg-white border-b border-r border-[var(--border-c)]" style={{position:"sticky", top:28, zIndex:6}}></th>
+                  {visibleStores.map(s => empByStore(s.id).map(e => (
+                    <th key={e.id} className="px-2 py-2 border-b border-l border-[var(--border-c)] text-center font-semibold whitespace-nowrap sticky bg-white" style={{position:"sticky", top:28, zIndex:3}}>
+                      <div className="text-[11px]">{e.nome}</div>
+                      <div className="text-[9px] text-gray-400 font-normal">{e.turno}</div>
+                    </th>
+                  )))}
+                </tr>
+              </thead>
+              <tbody>
+                {days.map(day => {
+                  const dow = new Date(y, m, day).getDay();
+                  const isWeekend = dow === 0 || dow === 6;
+                  return (
+                    <tr key={day} className="hover:bg-gray-50/60">
+                      <td className={`sticky-col bg-white px-3 py-1.5 border-b border-r border-[var(--border-c)] font-bold ${isWeekend ? "text-red-500" : "text-gray-600"}`}>
+                        {day} <span className="font-normal text-[10px]">{DIAS_SEMANA[dow]}</span>
+                      </td>
+                      {visibleStores.map(s => empByStore(s.id).map(e => {
+                        const k = cellKey(e.id, day);
+                        const isPoolStore = s.tipo === "backup_pool";
+                        const val = effectiveValue(e, day); // aplica folga fixa também nas lojas pool
+                        const isAuto = !schedule[k] && val === "Folga";
+                        const meta = statusMeta(val);
+                        // Nas lojas pool, o seletor de "para qual loja foi o backup" só aparece
+                        // quando a célula NÃO é folga (fixa ou manual) — senão mostra o status normal.
+                        const renderAsPool = isPoolStore && val !== "Folga";
+                        const dimmed = fStatus && val !== fStatus && !renderAsPool;
+                        const poolLabel = renderAsPool ? (storeById(val)?.nome || (val ? val : "—")) : null;
+                        return (
+                          <td key={k} className="border-b border-l border-[var(--border-c)] p-0.5 text-center" style={{ opacity: dimmed ? 0.25 : 1 }}>
+                            {renderAsPool ? (
+                              <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[80px] rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 px-1.5 truncate" style={{ background: val ? "#eff6ff" : "#f3f4f6", color: val ? "#1d4ed8" : "#9ca3af" }}>
+                                <span className="truncate">{poolLabel}</span>
+                                <Icon path={ICONS.chevronDown} size={10} className="shrink-0" />
+                              </button>
+                            ) : (
+                              <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[52px] rounded-md text-[11px] font-bold flex items-center justify-center" style={{ background: meta.bg, color: meta.fg, boxShadow: isAuto ? "inset 0 0 0 1px #c4b5fd" : "none" }} title={isAuto ? "Folga fixa automática" : ""}>
+                                {meta.label}
+                              </button>
+                            )}
+                          </td>
+                        );
+                      }))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-3 mt-4">
+        {STATUS_OPTIONS.filter(s=>s.value).map(s => (
+          <div key={s.value} className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.dot }}></span>{s.label}
+          </div>
+        ))}
+        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <span className="w-2.5 h-2.5 rounded-full ring-2 ring-violet-300" style={{ background: "#eef0f4" }}></span>Folga fixa (automática)
+        </div>
+      </div>
+
+      {editingCell && (editingCell.isPool ? (
+        <CellStoreMenu
+          anchorRect={editingCell.rect}
+          options={poolOptionsFor(editingCell.store)}
+          value={schedule[editingCell.key] || ""}
+          onClose={() => setEditingCell(null)}
+          onSelect={(value) => setCell(editingCell.empId, editingCell.day, value)}
+        />
+      ) : (
+        <CellStatusMenu
+          anchorRect={editingCell.rect}
+          value={effectiveValue(employees.find(e=>e.id===editingCell.empId) || {}, editingCell.day)}
+          onClose={() => setEditingCell(null)}
+          onSelect={(value) => setCell(editingCell.empId, editingCell.day, value)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* COLABORADORES                                                          */
+/* ---------------------------------------------------------------------- */
+function EmployeeModal({ employee, stores, onClose, onSave }) {
+  const [form, setForm] = useState(employee || { nome: "", lojaId: stores[0]?.id || "", turno: "Part Time", veiculo: "", funcao: "Motorista", estado: "Ativo", desligadoData: "", folgaFixa: [] });
+  const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+  const toggleDia = (idx) => setForm(prev => {
+    const cur = prev.folgaFixa || [];
+    const next = cur.includes(idx) ? cur.filter(d => d !== idx) : [...cur, idx];
+    return { ...prev, folgaFixa: next };
+  });
+  const submit = (e) => { e.preventDefault(); if (!form.nome.trim()) return; onSave(form); };
+  return (
+    <Modal title={employee ? "Editar Colaborador" : "Novo Colaborador"} onClose={onClose}>
+      <form onSubmit={submit}>
+        <Field label="Nome"><input required className={inputCls} value={form.nome} onChange={e=>set("nome", e.target.value)} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Loja">
+            <select className={inputCls} value={form.lojaId} onChange={e=>set("lojaId", e.target.value)}>
+              {stores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </Field>
+          <Field label="Turno">
+            <select className={inputCls} value={form.turno} onChange={e=>set("turno", e.target.value)}>
+              {TURNOS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Função">
+            <select className={inputCls} value={form.funcao} onChange={e=>set("funcao", e.target.value)}>
+              {FUNCOES.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Field>
+          <Field label="Veículo"><input className={inputCls} placeholder="—" value={form.veiculo} onChange={e=>set("veiculo", e.target.value)} /></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Estado">
+            <select className={inputCls} value={form.estado} onChange={e=>set("estado", e.target.value)}>
+              <option value="Ativo">Ativo</option>
+              <option value="Desligado">Desligado</option>
+            </select>
+          </Field>
+          {form.estado === "Desligado" && (
+            <Field label="Data de desligamento">
+              <input type="date" className={inputCls} value={form.desligadoData||""} onChange={e=>set("desligadoData", e.target.value)} />
+            </Field>
+          )}
+        </div>
+        <Field label="Folga Fixa (dias da semana)">
+          <div className="flex flex-wrap gap-1.5">
+            {DIAS_SEMANA.map((d, idx) => {
+              const active = (form.folgaFixa || []).includes(idx);
+              return (
+                <button type="button" key={idx} onClick={() => toggleDia(idx)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${active ? "text-white border-transparent" : "text-gray-500 border-[var(--border-c)] bg-white"}`}
+                  style={active ? { background: "var(--accent)" } : {}}>
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1.5">Nos dias selecionados a Grelha Operacional marca "Folga" automaticamente, todos os meses, sem precisar de preencher célula a célula. Podes sempre substituir manualmente numa célula específica.</p>
+        </Field>
+        <div className="flex justify-end gap-2 mt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancelar</button>
+          <button type="submit" className="px-4 py-2 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>Guardar</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function EmployeesView({ employees, stores }) {
+  const [search, setSearch] = useState("");
+  const [modal, setModal] = useState(null); // {mode:'new'|'edit', data}
+  const [deleting, setDeleting] = useState(null);
+
+  const filtered = employees.filter(e => e.nome.toLowerCase().includes(search.toLowerCase()));
+  const storeName = (id) => stores.find(s=>s.id===id)?.nome || "—";
+
+  const save = async (data) => {
+    if (data.id) await col("employees").doc(data.id).set(data, { merge: true });
+    else await col("employees").add({ ...data, criadoEm: Date.now() });
+    logHistory(data.id ? "Editou" : "Criou", "Colaborador", data.nome, `Loja: ${storeName(data.lojaId)} · Turno: ${data.turno}`);
+    setModal(null);
+  };
+  const remove = async (id) => {
+    const emp = employees.find(e => e.id === id);
+    await col("employees").doc(id).delete();
+    if (emp) logHistory("Eliminou", "Colaborador", emp.nome, "");
+    setDeleting(null);
+  };
+
+  return (
+    <div className="p-8 fade-in">
+      <div className="flex items-start justify-between mb-5">
+        <div>
+          <h1 className="text-2xl font-extrabold">Colaboradores</h1>
+          <p className="text-sm text-gray-400">{employees.length} colaboradores registados</p>
+        </div>
+        <button onClick={()=>setModal({mode:"new"})} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>
+          <Icon path={ICONS.plus} size={16} /> Novo Colaborador
+        </button>
+      </div>
+
+      <div className="relative mb-4 max-w-sm">
+        <Icon path={ICONS.search} size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Pesquisar colaborador..." className="w-full pl-9 pr-3 py-2 rounded-lg border border-[var(--border-c)] text-sm bg-white" />
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[var(--border-c)] overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-400 text-xs font-bold border-b border-[var(--border-c)]">
+              <th className="px-5 py-3">Nome</th><th className="px-5 py-3">Loja</th><th className="px-5 py-3">Turno</th>
+              <th className="px-5 py-3">Veículo</th><th className="px-5 py-3">Função</th><th className="px-5 py-3">Estado</th>
+              <th className="px-5 py-3 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(e => (
+              <tr key={e.id} className="border-b border-[var(--border-c)] last:border-0 hover:bg-gray-50/60">
+                <td className="px-5 py-3 font-semibold">{e.nome}</td>
+                <td className="px-5 py-3"><span className="px-2 py-0.5 rounded-md bg-gray-100 text-xs font-semibold text-gray-600">{storeName(e.lojaId).toUpperCase()}</span></td>
+                <td className="px-5 py-3 text-gray-500">{e.turno}</td>
+                <td className="px-5 py-3 text-gray-400">{e.veiculo || "—"}</td>
+                <td className="px-5 py-3 text-gray-500">{e.funcao}</td>
+                <td className="px-5 py-3">
+                  {e.estado === "Desligado"
+                    ? <span className="px-2 py-0.5 rounded-md bg-red-50 text-red-500 text-xs font-semibold">Desligado {e.desligadoData||""}</span>
+                    : <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-600 text-xs font-semibold">Ativo</span>}
+                </td>
+                <td className="px-5 py-3">
+                  <div className="flex justify-end gap-1">
+                    <button onClick={()=>setModal({mode:"edit", data:e})} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><Icon path={ICONS.edit} size={15} /></button>
+                    <button onClick={()=>setDeleting(e)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500"><Icon path={ICONS.trash} size={15} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {filtered.length===0 && <tr><td colSpan={7} className="text-center text-gray-400 py-10 text-sm">Nenhum colaborador encontrado.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && <EmployeeModal employee={modal.data} stores={stores} onClose={()=>setModal(null)} onSave={save} />}
+      {deleting && <ConfirmDelete what={deleting.nome} onConfirm={()=>remove(deleting.id)} onCancel={()=>setDeleting(null)} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* LOJAS                                                                  */
+/* ---------------------------------------------------------------------- */
+function StoreModal({ store, clients, onClose, onSave }) {
+  const [form, setForm] = useState(store || { nome: "", clienteId: clients[0]?.id || "", categoria: "DISTRIBUICAO", ccCode: "", meta: 95, limBackup: 5, cor: STORE_COLORS[0], tipo: "normal" });
+  const set = (k,v) => setForm(prev=>({...prev, [k]:v}));
+  const submit = (e) => { e.preventDefault(); if(!form.nome.trim()) return; onSave(form); };
+  return (
+    <Modal title={store ? "Editar Loja" : "Nova Loja"} onClose={onClose}>
+      <form onSubmit={submit}>
+        <Field label="Nome"><input required className={inputCls} value={form.nome} onChange={e=>set("nome", e.target.value)} /></Field>
+        <Field label="Cliente">
+          <select className={inputCls} value={form.clienteId||""} onChange={e=>set("clienteId", e.target.value)}>
+            <option value="">— Sem cliente —</option>
+            {clients.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Categoria">
+            <select className={inputCls} value={form.categoria} onChange={e=>set("categoria", e.target.value)}>
+              {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label="Código CC"><input className={inputCls} placeholder="opcional" value={form.ccCode||""} onChange={e=>set("ccCode", e.target.value)} /></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Meta (%)"><input type="number" min="0" max="100" className={inputCls} value={form.meta} onChange={e=>set("meta", Number(e.target.value))} /></Field>
+          <Field label="Limite Backup"><input type="number" min="0" className={inputCls} value={form.limBackup} onChange={e=>set("limBackup", Number(e.target.value))} /></Field>
+        </div>
+        <Field label="Cor">
+          <div className="flex flex-wrap gap-2">
+            {STORE_COLORS.map(c => (
+              <button type="button" key={c} onClick={()=>set("cor", c)} className="w-7 h-7 rounded-full border-2" style={{ background:c, borderColor: form.cor===c ? "#111" : "transparent" }}></button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Tipo de Loja">
+          <label className="flex items-start gap-2.5 p-3 rounded-lg border border-[var(--border-c)] cursor-pointer hover:bg-gray-50">
+            <input type="checkbox" className="mt-0.5" checked={form.tipo === "backup_pool"} onChange={e=>set("tipo", e.target.checked ? "backup_pool" : "normal")} />
+            <span>
+              <span className="block text-sm font-semibold">Loja de Backup Interno (pool de cobertura)</span>
+              <span className="block text-xs text-gray-400 mt-0.5">Nas células da Grelha, em vez dos status habituais, aparece a lista das lojas do mesmo cliente — para indicar para qual loja o colaborador foi fazer o backup.</span>
+            </span>
+          </label>
+        </Field>
+        <div className="flex justify-end gap-2 mt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancelar</button>
+          <button type="submit" className="px-4 py-2 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>Guardar</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ClientModal({ client, onClose, onSave }) {
+  const [form, setForm] = useState(client || { nome: "", cor: CLIENT_COLORS[0] });
+  const set = (k,v) => setForm(prev=>({...prev, [k]:v}));
+  const submit = (e) => { e.preventDefault(); if(!form.nome.trim()) return; onSave(form); };
+  return (
+    <Modal title={client ? "Editar Cliente" : "Novo Cliente"} onClose={onClose} width="max-w-sm">
+      <form onSubmit={submit}>
+        <Field label="Nome"><input required autoFocus className={inputCls} placeholder="Ex: DHL, GLS, CTT..." value={form.nome} onChange={e=>set("nome", e.target.value)} /></Field>
+        <Field label="Cor">
+          <div className="flex flex-wrap gap-2">
+            {CLIENT_COLORS.map(c => (
+              <button type="button" key={c} onClick={()=>set("cor", c)} className="w-7 h-7 rounded-full border-2" style={{ background:c, borderColor: form.cor===c ? "#111" : "transparent" }}></button>
+            ))}
+          </div>
+        </Field>
+        <div className="flex justify-end gap-2 mt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancelar</button>
+          <button type="submit" className="px-4 py-2 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>Guardar</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ClientsView({ clients, stores }) {
+  const [modal, setModal] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const save = async (data) => {
+    if (data.id) await col("clients").doc(data.id).set(data, { merge: true });
+    else await col("clients").add({ ...data, criadoEm: Date.now() });
+    logHistory(data.id ? "Editou" : "Criou", "Cliente", data.nome, "");
+    setModal(null);
+  };
+  const remove = async (id) => {
+    const cli = clients.find(c => c.id === id);
+    await col("clients").doc(id).delete();
+    if (cli) logHistory("Eliminou", "Cliente", cli.nome, "");
+    setDeleting(null);
+  };
+  const storesFor = (clientId) => stores.filter(s => s.clienteId === clientId).length;
+
+  return (
+    <>
+      <div className="flex justify-end mb-4">
+        <button onClick={()=>setModal({mode:"new"})} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>
+          <Icon path={ICONS.plus} size={16} /> Novo Cliente
+        </button>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        {clients.map(c => (
+          <div key={c.id} className="bg-white rounded-2xl border border-[var(--border-c)] overflow-hidden">
+            <div className="h-1.5" style={{ background: c.cor }}></div>
+            <div className="p-5 flex items-center justify-between">
+              <div>
+                <div className="font-extrabold text-sm">{c.nome.toUpperCase()}</div>
+                <div className="text-[11px] text-gray-400 font-semibold">{storesFor(c.id)} loja{storesFor(c.id)===1?"":"s"}</div>
+              </div>
+              <div className="flex gap-1">
+                <button onClick={()=>setModal({mode:"edit", data:c})} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><Icon path={ICONS.edit} size={14} /></button>
+                <button onClick={()=>setDeleting(c)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500"><Icon path={ICONS.trash} size={14} /></button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {clients.length===0 && <div className="col-span-full text-center text-gray-400 py-10 text-sm">Nenhum cliente registado.</div>}
+      </div>
+      {modal && <ClientModal client={modal.data} onClose={()=>setModal(null)} onSave={save} />}
+      {deleting && <ConfirmDelete what={deleting.nome} onConfirm={()=>remove(deleting.id)} onCancel={()=>setDeleting(null)} />}
+    </>
+  );
+}
+
+function StoresView({ stores, employees, clients }) {
+  const [tab, setTab] = useState("lojas");
+  const [modal, setModal] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const [fCliente, setFCliente] = useState("");
+
+  const save = async (data) => {
+    if (data.id) await col("stores").doc(data.id).set(data, { merge: true });
+    else await col("stores").add({ ...data, ordem: stores.length, criadoEm: Date.now() });
+    logHistory(data.id ? "Editou" : "Criou", "Loja", data.nome, data.clienteId ? `Cliente: ${clientName(data.clienteId)}` : "");
+    setModal(null);
+  };
+  const remove = async (id) => {
+    const st = stores.find(s => s.id === id);
+    await col("stores").doc(id).delete();
+    if (st) logHistory("Eliminou", "Loja", st.nome, "");
+    setDeleting(null);
+  };
+  const countFor = (storeId) => employees.filter(e => e.lojaId === storeId && e.estado !== "Desligado").length;
+  const clientName = (id) => clients.find(c=>c.id===id)?.nome || "";
+  const clientColor = (id) => clients.find(c=>c.id===id)?.cor || "#9ca3af";
+  const storesSorted = useMemo(() => [...stores].sort((a,b)=> (a.ordem??0)-(b.ordem??0) || a.nome.localeCompare(b.nome)), [stores]);
+  const visibleStores = storesSorted.filter(s => !fCliente || s.clienteId === fCliente);
+
+  const moveStore = async (storeId, dir) => {
+    const idx = storesSorted.findIndex(s => s.id === storeId);
+    const swapIdx = idx + dir;
+    if (idx === -1 || swapIdx < 0 || swapIdx >= storesSorted.length) return;
+    const list = [...storesSorted];
+    [list[idx], list[swapIdx]] = [list[swapIdx], list[idx]];
+    // Reatribui ordens sequenciais (0,1,2...) para toda a lista, garantindo consistência
+    await Promise.all(list.map((s, i) => col("stores").doc(s.id).set({ ordem: i }, { merge: true })));
+    logHistory("Editou", "Loja", list[idx].nome, `Reordenou a sequência na Grelha (posição ${idx+1})`);
+  };
+
+  return (
+    <div className="p-8 fade-in">
+      <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold">Gestão de Lojas &amp; Clientes</h1>
+          <p className="text-sm text-gray-400">{stores.length} lojas · {clients.length} clientes configurados{fCliente ? " · remove o filtro de cliente para reordenar" : " · usa as setas para reordenar a sequência na Grelha"}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {[["lojas","Lojas"],["clientes","Clientes"]].map(([k,l]) => (
+              <button key={k} onClick={()=>setTab(k)} className={`px-4 py-1.5 rounded-md text-sm font-semibold ${tab===k ? "bg-white shadow text-[var(--text-primary)]" : "text-gray-500"}`}>{l}</button>
+            ))}
+          </div>
+          {tab === "lojas" && (
+            <select value={fCliente} onChange={e=>setFCliente(e.target.value)} className="border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm bg-white font-medium">
+              <option value="">Todos os Clientes</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          )}
+          {tab === "lojas" && (
+            <button onClick={()=>setModal({mode:"new"})} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>
+              <Icon path={ICONS.plus} size={16} /> Nova Loja
+            </button>
+          )}
+        </div>
+      </div>
+
+      {tab === "clientes" ? (
+        <ClientsView clients={clients} stores={stores} />
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {visibleStores.map(s => (
+            <div key={s.id} className="bg-white rounded-2xl border border-[var(--border-c)] overflow-hidden">
+              <div className="h-1.5" style={{ background: s.cor }}></div>
+              <div className="p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="font-extrabold text-sm">{s.nome.toUpperCase()}</div>
+                    <div className="text-[11px] text-gray-400 font-semibold">{s.categoria}{s.ccCode ? ` • ${s.ccCode}` : ""}</div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {s.clienteId && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold" style={{ background: clientColor(s.clienteId)+"20", color: clientColor(s.clienteId) }}>
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: clientColor(s.clienteId) }}></span>
+                          {clientName(s.clienteId).toUpperCase()}
+                        </span>
+                      )}
+                      {s.tipo === "backup_pool" && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-50 text-indigo-600">
+                          <Icon path={ICONS.swap} size={9} /> POOL BACKUP
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {fCliente === "" && (
+                      <>
+                        <button onClick={()=>moveStore(s.id, -1)} title="Mover para cima" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 disabled:opacity-20" disabled={storesSorted[0]?.id === s.id}><Icon path={ICONS.chevronLeft} size={14} className="rotate-90" /></button>
+                        <button onClick={()=>moveStore(s.id, 1)} title="Mover para baixo" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 disabled:opacity-20" disabled={storesSorted[storesSorted.length-1]?.id === s.id}><Icon path={ICONS.chevronRight} size={14} className="rotate-90" /></button>
+                      </>
+                    )}
+                    <button onClick={()=>setModal({mode:"edit", data:s})} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><Icon path={ICONS.edit} size={14} /></button>
+                    <button onClick={()=>setDeleting(s)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500"><Icon path={ICONS.trash} size={14} /></button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-gray-50 rounded-lg py-2.5">
+                    <Icon path={ICONS.users} size={14} className="mx-auto mb-1 text-gray-400" />
+                    <div className="font-extrabold text-sm">{countFor(s.id)}</div>
+                    <div className="text-[9px] text-gray-400 font-semibold">Colaboradores</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg py-2.5">
+                    <Icon path={ICONS.check} size={14} className="mx-auto mb-1 text-gray-400" />
+                    <div className="font-extrabold text-sm">{s.meta}%</div>
+                    <div className="text-[9px] text-gray-400 font-semibold">Meta</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg py-2.5">
+                    <Icon path={ICONS.backup} size={14} className="mx-auto mb-1 text-gray-400" />
+                    <div className="font-extrabold text-sm">{s.limBackup}</div>
+                    <div className="text-[9px] text-gray-400 font-semibold">Lim. Backup</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+          {visibleStores.length===0 && <div className="col-span-full text-center text-gray-400 py-10 text-sm">Nenhuma loja encontrada.</div>}
+        </div>
+      )}
+
+      {modal && <StoreModal store={modal.data} clients={clients} onClose={()=>setModal(null)} onSave={save} />}
+      {deleting && <ConfirmDelete what={deleting.nome} onConfirm={()=>remove(deleting.id)} onCancel={()=>setDeleting(null)} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* BACKUPS                                                                */
+/* ---------------------------------------------------------------------- */
+function BackupModal({ backup, employees, onClose, onSave }) {
+  const [form, setForm] = useState(backup || { data: new Date().toISOString().slice(0,10), colaboradorId: employees[0]?.id||"", tipo: "Interno", origem: "", destino: "", duracao: 4, custo: 30, motivo: "Falta do driver residente" });
+  const set = (k,v) => setForm(prev=>({...prev,[k]:v}));
+  const submit = (e) => { e.preventDefault(); onSave(form); };
+  return (
+    <Modal title={backup ? "Editar Backup" : "Registar Backup"} onClose={onClose}>
+      <form onSubmit={submit}>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Data"><input type="date" required className={inputCls} value={form.data} onChange={e=>set("data", e.target.value)} /></Field>
+          <Field label="Tipo">
+            <select className={inputCls} value={form.tipo} onChange={e=>set("tipo", e.target.value)}>
+              <option value="Interno">Interno</option><option value="Externo">Externo</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="Colaborador">
+          <select className={inputCls} value={form.colaboradorId} onChange={e=>set("colaboradorId", e.target.value)}>
+            {employees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+          </select>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Origem"><input className={inputCls} value={form.origem} onChange={e=>set("origem", e.target.value)} /></Field>
+          <Field label="Destino"><input className={inputCls} value={form.destino} onChange={e=>set("destino", e.target.value)} /></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Duração (h)"><input type="number" min="0" className={inputCls} value={form.duracao} onChange={e=>set("duracao", Number(e.target.value))} /></Field>
+          <Field label="Custo (€)"><input type="number" min="0" className={inputCls} value={form.custo} onChange={e=>set("custo", Number(e.target.value))} /></Field>
+        </div>
+        <Field label="Motivo"><input className={inputCls} value={form.motivo} onChange={e=>set("motivo", e.target.value)} /></Field>
+        <div className="flex justify-end gap-2 mt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancelar</button>
+          <button type="submit" className="px-4 py-2 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>Guardar</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function BackupsView({ employees, monthOptions }) {
+  const [backups, setBackups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+  const [fMonth, setFMonth] = useState(""); // "" = todos os meses
+
+  useEffect(() => {
+    setLoading(true);
+    let query = col("backups").orderBy("data", "desc");
+    if (fMonth) {
+      const [y, m] = fMonth.split("-").map(Number);
+      const from = `${fMonth}-01`;
+      const to = `${monthKey(m === 12 ? y + 1 : y, m === 12 ? 0 : m)}-01`;
+      // Range de datas -> lê apenas os registos do mês selecionado (poupa dados/leituras)
+      query = col("backups").where("data", ">=", from).where("data", "<", to).orderBy("data", "desc");
+    } else {
+      query = query.limit(200);
+    }
+    const unsub = query.onSnapshot((snap) => {
+      setBackups(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [fMonth]);
+
+  const empName = (id) => employees.find(e=>e.id===id)?.nome || "—";
+  const internos = backups.filter(b=>b.tipo==="Interno").length;
+  const externos = backups.filter(b=>b.tipo==="Externo").length;
+  const custoTotal = backups.reduce((s,b)=>s+(Number(b.custo)||0),0);
+
+  const save = async (data) => {
+    if (data.id) await col("backups").doc(data.id).set(data, { merge:true });
+    else await col("backups").add({ ...data, criadoEm: Date.now() });
+    logHistory(data.id ? "Editou" : "Criou", "Backup", empName(data.colaboradorId), `${data.tipo} · ${data.origem} → ${data.destino} · ${fmtEUR(data.custo)}`);
+    setModal(null);
+  };
+
+  return (
+    <div className="p-8 fade-in">
+      <div className="flex items-start justify-between mb-5">
+        <div>
+          <h1 className="text-2xl font-extrabold">Gestão de Backups</h1>
+          <p className="text-sm text-gray-400">{backups.length} registos de backup{fMonth ? " · filtrado por mês" : ""}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select value={fMonth} onChange={(e)=>setFMonth(e.target.value)} className="border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm bg-white font-medium">
+            <option value="">Todos os meses</option>
+            {monthOptions.map(mk => { const [yy,mm]=mk.split("-").map(Number); return <option key={mk} value={mk}>{MESES[mm-1]} {yy}</option>; })}
+          </select>
+          <button onClick={()=>setModal({mode:"new"})} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>
+            <Icon path={ICONS.plus} size={16} /> Registar Backup
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-5">
+        <div className="bg-white rounded-2xl border border-[var(--border-c)] p-6 text-center">
+          <div className="text-3xl font-extrabold" style={{color:"#14b8a6"}}>{internos}</div>
+          <div className="text-xs font-bold text-gray-400 mt-1">INTERNOS</div>
+        </div>
+        <div className="bg-white rounded-2xl border border-[var(--border-c)] p-6 text-center">
+          <div className="text-3xl font-extrabold" style={{color:"#f59e0b"}}>{externos}</div>
+          <div className="text-xs font-bold text-gray-400 mt-1">EXTERNOS</div>
+        </div>
+        <div className="bg-white rounded-2xl border border-[var(--border-c)] p-6 text-center">
+          <div className="text-3xl font-extrabold">{fmtEUR(custoTotal)}</div>
+          <div className="text-xs font-bold text-gray-400 mt-1">CUSTO TOTAL</div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[var(--border-c)] overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-400 text-xs font-bold border-b border-[var(--border-c)]">
+              <th className="px-5 py-3">Data</th><th className="px-5 py-3">Colaborador</th><th className="px-5 py-3">Tipo</th>
+              <th className="px-5 py-3">Origem → Destino</th><th className="px-5 py-3">Duração</th><th className="px-5 py-3">Custo</th>
+              <th className="px-5 py-3">Motivo</th><th className="px-5 py-3 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? <tr><td colSpan={8} className="text-center text-gray-300 py-10 text-sm">A carregar…</td></tr> :
+              backups.map(b => (
+                <tr key={b.id} className="border-b border-[var(--border-c)] last:border-0 hover:bg-gray-50/60">
+                  <td className="px-5 py-3">{b.data?.split("-").reverse().join("/")}</td>
+                  <td className="px-5 py-3 font-semibold">{empName(b.colaboradorId)}</td>
+                  <td className="px-5 py-3">
+                    <span className={`px-2 py-0.5 rounded-md text-xs font-semibold ${b.tipo==="Interno" ? "bg-teal-50 text-teal-600" : "bg-amber-50 text-amber-600"}`}>{b.tipo}</span>
+                  </td>
+                  <td className="px-5 py-3 text-gray-500">{b.origem} → {b.destino}</td>
+                  <td className="px-5 py-3 text-gray-500">{b.duracao}h</td>
+                  <td className="px-5 py-3 font-semibold">{fmtEUR(b.custo)}</td>
+                  <td className="px-5 py-3 text-gray-400">{b.motivo}</td>
+                  <td className="px-5 py-3 text-right">
+                    <button onClick={()=>setModal({mode:"edit", data:b})} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><Icon path={ICONS.edit} size={15} /></button>
+                  </td>
+                </tr>
+              ))}
+            {!loading && backups.length===0 && <tr><td colSpan={8} className="text-center text-gray-400 py-10 text-sm">Sem registos de backup.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && <BackupModal backup={modal.data} employees={employees} onClose={()=>setModal(null)} onSave={save} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* HISTÓRICO DE EDIÇÃO                                                    */
+/* ---------------------------------------------------------------------- */
+const ENTIDADE_META = {
+  Colaborador: { icon: ICONS.users, color: "#4f6ef7" },
+  Loja:        { icon: ICONS.store, color: "#8b5cf6" },
+  Cliente:     { icon: ICONS.swap,  color: "#ec4899" },
+  Backup:      { icon: ICONS.backup,color: "#14b8a6" },
+  Grelha:      { icon: ICONS.grid,  color: "#f59e0b" },
+};
+const ACAO_META = {
+  Criou:     { label: "Criou",     bg: "#e6f9f0", fg: "#10b981" },
+  Editou:    { label: "Editou",    bg: "#eef1ff", fg: "#4f6ef7" },
+  Eliminou:  { label: "Eliminou",  bg: "#fef2f2", fg: "#ef4444" },
+};
+
+function fmtDateTime(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit", year: "numeric" }) + " · " +
+         d.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+}
+
+function HistoryView() {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [fEntidade, setFEntidade] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    // Últimos 300 registos -> evita carregar todo o histórico de uma vez (poupa dados)
+    const unsub = col("auditLog").orderBy("timestamp", "desc").limit(300).onSnapshot((snap) => {
+      setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  const filtered = logs.filter(l => !fEntidade || l.entidade === fEntidade);
+
+  return (
+    <div className="p-8 fade-in">
+      <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold">Histórico de Edição</h1>
+          <p className="text-sm text-gray-400">Registo de todas as alterações feitas na aplicação · últimos {logs.length} eventos</p>
+        </div>
+        <select value={fEntidade} onChange={e=>setFEntidade(e.target.value)} className="border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm bg-white font-medium">
+          <option value="">Todas as áreas</option>
+          {Object.keys(ENTIDADE_META).map(k => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[var(--border-c)] overflow-hidden">
+        {loading ? (
+          <div className="p-16 text-center text-gray-300 text-sm">A carregar histórico…</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-16 text-center text-gray-400 text-sm">Sem registos {fEntidade ? `de ${fEntidade}` : ""} ainda.</div>
+        ) : (
+          <div className="divide-y divide-[var(--border-c)]">
+            {filtered.map(l => {
+              const em = ENTIDADE_META[l.entidade] || ENTIDADE_META.Grelha;
+              const am = ACAO_META[l.acao] || ACAO_META.Editou;
+              return (
+                <div key={l.id} className="flex items-start gap-3 px-5 py-3.5 hover:bg-gray-50/60">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: em.color+"18", color: em.color }}>
+                    <Icon path={em.icon} size={15} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: am.bg, color: am.fg }}>{am.label}</span>
+                      <span className="text-xs font-semibold text-gray-400">{l.entidade}</span>
+                      <span className="text-sm font-bold truncate">{l.alvo}</span>
+                    </div>
+                    {l.detalhes && <div className="text-xs text-gray-500 mt-0.5 truncate">{l.detalhes}</div>}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs font-semibold text-gray-500">{l.user}</div>
+                    <div className="text-[10px] text-gray-400">{fmtDateTime(l.timestamp)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* APP RAIZ                                                               */
+/* ---------------------------------------------------------------------- */
+function App() {
+  const [user, setUser] = useState(() => {
+    try {
+      const raw = localStorage.getItem("opsUser");
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  });
+  const [view, setView] = useState("dashboard");
+  const [collapsed, setCollapsed] = useState(false);
+  const [stores, setStores] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [dark, setDark] = useState(() => {
+    try { return localStorage.getItem("opsTheme") === "dark"; } catch (e) { return false; }
+  });
+  const scheduleCache = useRef({});
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    try { localStorage.setItem("opsTheme", dark ? "dark" : "light"); } catch (e) {}
+  }, [dark]);
+  const toggleDark = useCallback(() => setDark(d => !d), []);
+
+  const handleLogin = useCallback((name) => {
+    const u = { displayName: name };
+    try { localStorage.setItem("opsUser", JSON.stringify(u)); } catch (e) {}
+    setUser(u);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    try { localStorage.removeItem("opsUser"); } catch (e) {}
+    setUser(null);
+  }, []);
+
+  // Coleções pequenas (lojas / colaboradores): listener único, dados leves -> mantido sempre ativo
+  useEffect(() => {
+    if (!user) return;
+    const unsub1 = col("stores").orderBy("ordem", "asc").onSnapshot(
+      (snap) => setStores(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      () => col("stores").onSnapshot((snap) => setStores(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+    );
+    const unsub2 = col("employees").onSnapshot((snap) => setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsub3 = col("clients").onSnapshot((snap) => setClients(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return () => { unsub1(); unsub2(); unsub3(); };
+  }, [user]);
+
+  // Grelha: 1 único documento Firestore por mês (em vez de 1 doc por dia/colaborador) -> minimiza leituras/custos de dados.
+  // Resultado é colocado em cache local (scheduleCache) para não voltar a pedir o mesmo mês ao Firestore.
+  const getScheduleForMonth = useCallback(async (mk) => {
+    if (scheduleCache.current[mk]) return scheduleCache.current[mk];
+    const snap = await col("schedule").doc(mk).get({ source: "default" });
+    const data = snap.exists ? (snap.data().cells || {}) : {};
+    scheduleCache.current[mk] = data;
+    return data;
+  }, []);
+
+  const saveCellStatus = useCallback(async (mk, empId, day, value) => {
+    const ref = col("schedule").doc(mk);
+    const field = `cells.${cellKey(empId, day)}`;
+    await ref.set({ [cellKey(empId, day)]: null }, { merge: false }).catch(()=>{}); // no-op guard
+    await ref.set({ cells: { [cellKey(empId, day)]: value } }, { merge: true });
+    if (scheduleCache.current[mk]) scheduleCache.current[mk][cellKey(empId, day)] = value;
+  }, []);
+
+  const monthOptions = useMemo(() => {
+    const now = new Date();
+    const arr = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      arr.push(monthKey(d.getFullYear(), d.getMonth()));
+    }
+    return arr;
+  }, []);
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar view={view} setView={setView} collapsed={collapsed} setCollapsed={setCollapsed} user={user} onLogout={handleLogout} />
+      <div className="flex-1 min-w-0">
+        <Header user={user} dark={dark} onToggleDark={toggleDark} />
+        {view === "dashboard" && <DashboardView stores={stores} employees={employees} getScheduleForMonth={getScheduleForMonth} monthOptions={monthOptions} />}
+        {view === "grid" && <GridView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} saveCellStatus={saveCellStatus} />}
+        {view === "employees" && <EmployeesView employees={employees} stores={stores} />}
+        {view === "stores" && <StoresView stores={stores} employees={employees} clients={clients} />}
+        {view === "backups" && <BackupsView employees={employees} monthOptions={monthOptions} />}
+        {view === "history" && <HistoryView />}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);
+</script>
+
+<script>
+  // Compila o JSX manualmente (evita o conflito de runtime do Babel Standalone
+  // quando corre a partir de um <script type="text/babel"> inline em alguns navegadores).
+  function showBootError(err) {
+    const root = document.getElementById("root");
+    root.innerHTML =
+      '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#161d2e;padding:24px;font-family:Inter,system-ui,sans-serif;">' +
+        '<div style="background:#fff;border-radius:16px;padding:32px;max-width:560px;width:100%;box-shadow:0 20px 40px rgba(0,0,0,.3);">' +
+          '<h2 style="margin:0 0 12px;color:#e0293b;font-size:18px;">Não foi possível iniciar a aplicação</h2>' +
+          '<p style="margin:0 0 12px;color:#6b7280;font-size:13px;">Provável causa: falha ao carregar um script externo (Tailwind, Chart.js, Firebase, React ou Babel) ou erro de sintaxe no código. Verifica a ligação à internet e a consola do browser (F12) para o detalhe abaixo.</p>' +
+          '<pre style="white-space:pre-wrap;word-break:break-word;background:#f4f6fa;padding:12px;border-radius:8px;font-size:12px;color:#161d2e;max-height:260px;overflow:auto;">' +
+            String((err && (err.stack || err.message)) || err).replace(/</g, "&lt;") +
+          '</pre>' +
+        '</div>' +
+      '</div>';
+    console.error("Erro ao compilar/iniciar a aplicação:", err);
+  }
+
+  (function () {
+    try {
+      if (typeof Babel === "undefined") {
+        throw new Error("Babel não carregou (verifica a ligação à internet / bloqueadores de script).");
+      }
+      const el = document.getElementById("app-source");
+      if (!el) {
+        throw new Error("Bloco de código da aplicação (#app-source) não encontrado no HTML.");
+      }
+      const src = el.textContent;
+      const out = Babel.transform(src, {
+        presets: [["react", { runtime: "classic" }]],
+        filename: "app.jsx",
+        sourceType: "script",
+      }).code;
+      const tag = document.createElement("script");
+      tag.textContent = out;
+      tag.onerror = function (e) { showBootError(e); };
+      document.body.appendChild(tag);
+    } catch (err) {
+      showBootError(err);
+    }
+  })();
+</script>
+</body>
+</html>
