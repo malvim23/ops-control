@@ -861,15 +861,18 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
                       </td>
                       {visibleStores.map(s => empByStore(s.id).map(e => {
                         const k = cellKey(e.id, day);
-                        const isPool = s.tipo === "backup_pool";
-                        const val = isPool ? (schedule[k] || "") : effectiveValue(e, day);
-                        const isAuto = !isPool && !schedule[k] && val === "Folga";
+                        const isPoolStore = s.tipo === "backup_pool";
+                        const val = effectiveValue(e, day); // aplica folga fixa também nas lojas pool
+                        const isAuto = !schedule[k] && val === "Folga";
                         const meta = statusMeta(val);
-                        const dimmed = fStatus && val !== fStatus && !isPool;
-                        const poolLabel = isPool ? (storeById(val)?.nome || (val ? val : "—")) : null;
+                        // Nas lojas pool, o seletor de "para qual loja foi o backup" só aparece
+                        // quando a célula NÃO é folga (fixa ou manual) — senão mostra o status normal.
+                        const renderAsPool = isPoolStore && val !== "Folga";
+                        const dimmed = fStatus && val !== fStatus && !renderAsPool;
+                        const poolLabel = renderAsPool ? (storeById(val)?.nome || (val ? val : "—")) : null;
                         return (
                           <td key={k} className="border-b border-l border-[var(--border-c)] p-0.5 text-center" style={{ opacity: dimmed ? 0.25 : 1 }}>
-                            {isPool ? (
+                            {renderAsPool ? (
                               <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[80px] rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 px-1.5 truncate" style={{ background: val ? "#eff6ff" : "#f3f4f6", color: val ? "#1d4ed8" : "#9ca3af" }}>
                                 <span className="truncate">{poolLabel}</span>
                                 <Icon path={ICONS.chevronDown} size={10} className="shrink-0" />
