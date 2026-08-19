@@ -678,6 +678,52 @@ function CellStatusMenu({ anchorRect, value, onSelect, onClose }) {
   );
 }
 
+function CellStoreMenu({ anchorRect, options, value, onSelect, onClose }) {
+  const [pos, setPos] = useState(null);
+
+  useEffect(() => {
+    const menuW = 210;
+    const menuH = Math.min(options.length, 8) * 38 + 60;
+    let top = anchorRect.bottom + 6;
+    let left = anchorRect.left;
+    if (left + menuW > window.innerWidth - 8) left = window.innerWidth - menuW - 8;
+    if (top + menuH > window.innerHeight - 8) top = anchorRect.top - menuH - 6;
+    setPos({ top, left, width: Math.max(anchorRect.width, menuW) });
+  }, [anchorRect]);
+
+  useEffect(() => {
+    const onKey = (ev) => { if (ev.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (!pos) return null;
+
+  return ReactDOM.createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onMouseDown={onClose}></div>
+      <div className="fixed z-50 bg-white rounded-xl shadow-2xl border border-[var(--border-c)] py-1.5 fade-in max-h-72 overflow-y-auto" style={{ top: pos.top, left: pos.left, width: pos.width }} onMouseDown={(e)=>e.stopPropagation()}>
+        <div className="px-3.5 pb-1.5 pt-0.5 text-[10px] font-bold text-gray-400 uppercase tracking-wide">Foi fazer backup em:</div>
+        {options.map(o => (
+          <button key={o.id} onClick={() => onSelect(o.id)}
+            className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-left hover:bg-gray-50 ${value === o.id ? "bg-gray-50 font-semibold" : ""}`}>
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: o.cor }}></span>
+            <span className="truncate">{o.nome}</span>
+          </button>
+        ))}
+        {options.length === 0 && <div className="px-3.5 py-2 text-sm text-gray-400">Sem outras lojas neste cliente.</div>}
+        <div className="border-t border-[var(--border-c)] mt-1 pt-1">
+          <button onClick={() => onSelect("")} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-left text-gray-400 hover:bg-gray-50">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "#e5e7eb" }}></span>
+            <span>Limpar</span>
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
 function GridView({ stores, employees, clients, getScheduleForMonth, saveCellStatus }) {
   const now = new Date();
   const [y, setY] = useState(now.getFullYear());
@@ -706,6 +752,23 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
 
   const visibleStores = storesSorted.filter(s => (!fLoja || s.id === fLoja) && (!fCliente || s.clienteId === fCliente));
   const empByStore = (storeId) => activeEmployees.filter(e => e.lojaId === storeId && (!fTurno || e.turno === fTurno));
+  const storeById = (id) => stores.find(s => s.id === id);
+
+  // Loja "Backup Interno" (pool): a célula não mostra status, mostra a lista de lojas do mesmo cliente
+  const poolOptionsFor = (store) => stores
+    .filter(s => s.id !== store.id && s.clienteId && s.clienteId === store.clienteId)
+    .sort((a,b)=>a.nome.localeCompare(b.nome))
+    .map(s => ({ id: s.id, nome: s.nome, cor: s.cor }));
+
+  // Folga fixa: se a célula não tem valor guardado e o colaborador tem esse dia da semana marcado
+  // como folga fixa no cadastro, mostra "Folga" automaticamente (sem precisar preencher célula a célula).
+  const effectiveValue = (emp, day) => {
+    const saved = schedule[cellKey(emp.id, day)];
+    if (saved) return saved;
+    const dow = new Date(y, m, day).getDay();
+    if ((emp.folgaFixa || []).includes(dow)) return "Folga";
+    return "";
+  };
 
   const setCell = async (empId, day, value) => {
     setSchedule(prev => ({ ...prev, [cellKey(empId, day)]: value }));
@@ -713,9 +776,9 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
     await saveCellStatus(mk, empId, day, value);
   };
 
-  const openCellMenu = (e, empId, day) => {
+  const openCellMenu = (e, empId, day, store) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    setEditingCell({ key: cellKey(empId, day), empId, day, rect });
+    setEditingCell({ key: cellKey(empId, day), empId, day, rect, isPool: store.tipo === "backup_pool", store });
   };
 
   const changeMonth = (delta) => {
@@ -798,14 +861,24 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
                       </td>
                       {visibleStores.map(s => empByStore(s.id).map(e => {
                         const k = cellKey(e.id, day);
-                        const val = schedule[k] || "";
+                        const isPool = s.tipo === "backup_pool";
+                        const val = isPool ? (schedule[k] || "") : effectiveValue(e, day);
+                        const isAuto = !isPool && !schedule[k] && val === "Folga";
                         const meta = statusMeta(val);
-                        const dimmed = fStatus && val !== fStatus;
+                        const dimmed = fStatus && val !== fStatus && !isPool;
+                        const poolLabel = isPool ? (storeById(val)?.nome || (val ? val : "—")) : null;
                         return (
                           <td key={k} className="border-b border-l border-[var(--border-c)] p-0.5 text-center" style={{ opacity: dimmed ? 0.25 : 1 }}>
-                            <button onClick={(ev)=>openCellMenu(ev, e.id, day)} className="w-full h-7 min-w-[52px] rounded-md text-[11px] font-bold flex items-center justify-center" style={{ background: meta.bg, color: meta.fg }}>
-                              {meta.label}
-                            </button>
+                            {isPool ? (
+                              <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[80px] rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 px-1.5 truncate" style={{ background: val ? "#eff6ff" : "#f3f4f6", color: val ? "#1d4ed8" : "#9ca3af" }}>
+                                <span className="truncate">{poolLabel}</span>
+                                <Icon path={ICONS.chevronDown} size={10} className="shrink-0" />
+                              </button>
+                            ) : (
+                              <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[52px] rounded-md text-[11px] font-bold flex items-center justify-center" style={{ background: meta.bg, color: meta.fg, boxShadow: isAuto ? "inset 0 0 0 1px #c4b5fd" : "none" }} title={isAuto ? "Folga fixa automática" : ""}>
+                                {meta.label}
+                              </button>
+                            )}
                           </td>
                         );
                       }))}
@@ -823,16 +896,27 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.dot }}></span>{s.label}
           </div>
         ))}
+        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <span className="w-2.5 h-2.5 rounded-full ring-2 ring-violet-300" style={{ background: "#eef0f4" }}></span>Folga fixa (automática)
+        </div>
       </div>
 
-      {editingCell && (
-        <CellStatusMenu
+      {editingCell && (editingCell.isPool ? (
+        <CellStoreMenu
           anchorRect={editingCell.rect}
+          options={poolOptionsFor(editingCell.store)}
           value={schedule[editingCell.key] || ""}
           onClose={() => setEditingCell(null)}
           onSelect={(value) => setCell(editingCell.empId, editingCell.day, value)}
         />
-      )}
+      ) : (
+        <CellStatusMenu
+          anchorRect={editingCell.rect}
+          value={effectiveValue(employees.find(e=>e.id===editingCell.empId) || {}, editingCell.day)}
+          onClose={() => setEditingCell(null)}
+          onSelect={(value) => setCell(editingCell.empId, editingCell.day, value)}
+        />
+      ))}
     </div>
   );
 }
@@ -841,8 +925,13 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
 /* COLABORADORES                                                          */
 /* ---------------------------------------------------------------------- */
 function EmployeeModal({ employee, stores, onClose, onSave }) {
-  const [form, setForm] = useState(employee || { nome: "", lojaId: stores[0]?.id || "", turno: "Part Time", veiculo: "", funcao: "Motorista", estado: "Ativo", desligadoData: "" });
+  const [form, setForm] = useState(employee || { nome: "", lojaId: stores[0]?.id || "", turno: "Part Time", veiculo: "", funcao: "Motorista", estado: "Ativo", desligadoData: "", folgaFixa: [] });
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+  const toggleDia = (idx) => setForm(prev => {
+    const cur = prev.folgaFixa || [];
+    const next = cur.includes(idx) ? cur.filter(d => d !== idx) : [...cur, idx];
+    return { ...prev, folgaFixa: next };
+  });
   const submit = (e) => { e.preventDefault(); if (!form.nome.trim()) return; onSave(form); };
   return (
     <Modal title={employee ? "Editar Colaborador" : "Novo Colaborador"} onClose={onClose}>
@@ -881,6 +970,21 @@ function EmployeeModal({ employee, stores, onClose, onSave }) {
             </Field>
           )}
         </div>
+        <Field label="Folga Fixa (dias da semana)">
+          <div className="flex flex-wrap gap-1.5">
+            {DIAS_SEMANA.map((d, idx) => {
+              const active = (form.folgaFixa || []).includes(idx);
+              return (
+                <button type="button" key={idx} onClick={() => toggleDia(idx)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${active ? "text-white border-transparent" : "text-gray-500 border-[var(--border-c)] bg-white"}`}
+                  style={active ? { background: "var(--accent)" } : {}}>
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-1.5">Nos dias selecionados a Grelha Operacional marca "Folga" automaticamente, todos os meses, sem precisar de preencher célula a célula. Podes sempre substituir manualmente numa célula específica.</p>
+        </Field>
         <div className="flex justify-end gap-2 mt-2">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancelar</button>
           <button type="submit" className="px-4 py-2 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>Guardar</button>
@@ -967,7 +1071,7 @@ function EmployeesView({ employees, stores }) {
 /* LOJAS                                                                  */
 /* ---------------------------------------------------------------------- */
 function StoreModal({ store, clients, onClose, onSave }) {
-  const [form, setForm] = useState(store || { nome: "", clienteId: clients[0]?.id || "", categoria: "DISTRIBUICAO", ccCode: "", meta: 95, limBackup: 5, cor: STORE_COLORS[0] });
+  const [form, setForm] = useState(store || { nome: "", clienteId: clients[0]?.id || "", categoria: "DISTRIBUICAO", ccCode: "", meta: 95, limBackup: 5, cor: STORE_COLORS[0], tipo: "normal" });
   const set = (k,v) => setForm(prev=>({...prev, [k]:v}));
   const submit = (e) => { e.preventDefault(); if(!form.nome.trim()) return; onSave(form); };
   return (
@@ -998,6 +1102,15 @@ function StoreModal({ store, clients, onClose, onSave }) {
               <button type="button" key={c} onClick={()=>set("cor", c)} className="w-7 h-7 rounded-full border-2" style={{ background:c, borderColor: form.cor===c ? "#111" : "transparent" }}></button>
             ))}
           </div>
+        </Field>
+        <Field label="Tipo de Loja">
+          <label className="flex items-start gap-2.5 p-3 rounded-lg border border-[var(--border-c)] cursor-pointer hover:bg-gray-50">
+            <input type="checkbox" className="mt-0.5" checked={form.tipo === "backup_pool"} onChange={e=>set("tipo", e.target.checked ? "backup_pool" : "normal")} />
+            <span>
+              <span className="block text-sm font-semibold">Loja de Backup Interno (pool de cobertura)</span>
+              <span className="block text-xs text-gray-400 mt-0.5">Nas células da Grelha, em vez dos status habituais, aparece a lista das lojas do mesmo cliente — para indicar para qual loja o colaborador foi fazer o backup.</span>
+            </span>
+          </label>
         </Field>
         <div className="flex justify-end gap-2 mt-2">
           <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancelar</button>
@@ -1089,14 +1202,25 @@ function StoresView({ stores, employees, clients }) {
   const countFor = (storeId) => employees.filter(e => e.lojaId === storeId && e.estado !== "Desligado").length;
   const clientName = (id) => clients.find(c=>c.id===id)?.nome || "";
   const clientColor = (id) => clients.find(c=>c.id===id)?.cor || "#9ca3af";
-  const visibleStores = stores.filter(s => !fCliente || s.clienteId === fCliente);
+  const storesSorted = useMemo(() => [...stores].sort((a,b)=> (a.ordem??0)-(b.ordem??0) || a.nome.localeCompare(b.nome)), [stores]);
+  const visibleStores = storesSorted.filter(s => !fCliente || s.clienteId === fCliente);
+
+  const moveStore = async (storeId, dir) => {
+    const idx = storesSorted.findIndex(s => s.id === storeId);
+    const swapIdx = idx + dir;
+    if (idx === -1 || swapIdx < 0 || swapIdx >= storesSorted.length) return;
+    const list = [...storesSorted];
+    [list[idx], list[swapIdx]] = [list[swapIdx], list[idx]];
+    // Reatribui ordens sequenciais (0,1,2...) para toda a lista, garantindo consistência
+    await Promise.all(list.map((s, i) => col("stores").doc(s.id).set({ ordem: i }, { merge: true })));
+  };
 
   return (
     <div className="p-8 fade-in">
       <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-extrabold">Gestão de Lojas &amp; Clientes</h1>
-          <p className="text-sm text-gray-400">{stores.length} lojas · {clients.length} clientes configurados</p>
+          <p className="text-sm text-gray-400">{stores.length} lojas · {clients.length} clientes configurados{fCliente ? " · remove o filtro de cliente para reordenar" : " · usa as setas para reordenar a sequência na Grelha"}</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
@@ -1130,14 +1254,27 @@ function StoresView({ stores, employees, clients }) {
                   <div>
                     <div className="font-extrabold text-sm">{s.nome.toUpperCase()}</div>
                     <div className="text-[11px] text-gray-400 font-semibold">{s.categoria}{s.ccCode ? ` • ${s.ccCode}` : ""}</div>
-                    {s.clienteId && (
-                      <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold" style={{ background: clientColor(s.clienteId)+"20", color: clientColor(s.clienteId) }}>
-                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: clientColor(s.clienteId) }}></span>
-                        {clientName(s.clienteId).toUpperCase()}
-                      </span>
-                    )}
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {s.clienteId && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold" style={{ background: clientColor(s.clienteId)+"20", color: clientColor(s.clienteId) }}>
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: clientColor(s.clienteId) }}></span>
+                          {clientName(s.clienteId).toUpperCase()}
+                        </span>
+                      )}
+                      {s.tipo === "backup_pool" && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-50 text-indigo-600">
+                          <Icon path={ICONS.swap} size={9} /> POOL BACKUP
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex items-center gap-1">
+                    {fCliente === "" && (
+                      <>
+                        <button onClick={()=>moveStore(s.id, -1)} title="Mover para cima" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 disabled:opacity-20" disabled={storesSorted[0]?.id === s.id}><Icon path={ICONS.chevronLeft} size={14} className="rotate-90" /></button>
+                        <button onClick={()=>moveStore(s.id, 1)} title="Mover para baixo" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 disabled:opacity-20" disabled={storesSorted[storesSorted.length-1]?.id === s.id}><Icon path={ICONS.chevronRight} size={14} className="rotate-90" /></button>
+                      </>
+                    )}
                     <button onClick={()=>setModal({mode:"edit", data:s})} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><Icon path={ICONS.edit} size={14} /></button>
                     <button onClick={()=>setDeleting(s)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500"><Icon path={ICONS.trash} size={14} /></button>
                   </div>
