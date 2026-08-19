@@ -1497,9 +1497,18 @@ function StoresView({ stores, employees, clients }) {
 /* BACKUPS                                                                */
 /* ---------------------------------------------------------------------- */
 function BackupModal({ backup, employees, onClose, onSave }) {
-  const [form, setForm] = useState(backup || { data: new Date().toISOString().slice(0,10), colaboradorId: employees[0]?.id||"", tipo: "Interno", origem: "", destino: "", duracao: 4, custo: 30, motivo: "Falta do driver residente" });
+  // Colaborador do backup é texto livre -- não depende dos colaboradores cadastrados
+  // no sistema. Se o registo for antigo (guardado com colaboradorId), pré-preenche
+  // o campo com o nome correspondente para o utilizador poder editar à vontade.
+  const nomeInicial = backup?.colaboradorNome || employees.find(e => e.id === backup?.colaboradorId)?.nome || "";
+  const [form, setForm] = useState(backup ? { ...backup, colaboradorNome: nomeInicial } : { data: new Date().toISOString().slice(0,10), colaboradorNome: "", tipo: "Interno", origem: "", destino: "", duracao: 4, custo: 30, motivo: "Falta do driver residente" });
   const set = (k,v) => setForm(prev=>({...prev,[k]:v}));
-  const submit = (e) => { e.preventDefault(); onSave(form); };
+
+  const submit = (e) => {
+    e.preventDefault();
+    const { colaboradorId, ...rest } = form; // deixa de gravar colaboradorId em novos registos
+    onSave({ ...rest, colaboradorNome: form.colaboradorNome.trim() });
+  };
   return (
     <Modal title={backup ? "Editar Backup" : "Registar Backup"} onClose={onClose}>
       <form onSubmit={submit}>
@@ -1512,9 +1521,14 @@ function BackupModal({ backup, employees, onClose, onSave }) {
           </Field>
         </div>
         <Field label="Colaborador">
-          <select className={inputCls} value={form.colaboradorId} onChange={e=>set("colaboradorId", e.target.value)}>
-            {employees.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-          </select>
+          <input
+            className={inputCls}
+            value={form.colaboradorNome}
+            onChange={e=>set("colaboradorNome", e.target.value)}
+            placeholder="Escreve o nome do colaborador"
+            autoComplete="off"
+            required
+          />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Origem"><input className={inputCls} value={form.origem} onChange={e=>set("origem", e.target.value)} /></Field>
@@ -1559,7 +1573,10 @@ function BackupsView({ employees, monthOptions }) {
     return () => unsub();
   }, [fMonth]);
 
-  const empName = (id) => employees.find(e=>e.id===id)?.nome || "—";
+  // Nome do colaborador do backup: texto livre (colaboradorNome). Para registos
+  // antigos, guardados antes desta alteração, cai para o colaborador cadastrado
+  // (colaboradorId) só para não perder o histórico já existente.
+  const backupColabNome = (b) => b.colaboradorNome || employees.find(e=>e.id===b.colaboradorId)?.nome || "—";
   const internos = backups.filter(b=>b.tipo==="Interno").length;
   const externos = backups.filter(b=>b.tipo==="Externo").length;
   const custoTotal = backups.reduce((s,b)=>s+(Number(b.custo)||0),0);
@@ -1567,7 +1584,7 @@ function BackupsView({ employees, monthOptions }) {
   const save = async (data) => {
     if (data.id) await col("backups").doc(data.id).set(data, { merge:true });
     else await col("backups").add({ ...data, criadoEm: Date.now() });
-    logHistory(data.id ? "Editou" : "Criou", "Backup", empName(data.colaboradorId), `${data.tipo} · ${data.origem} → ${data.destino} · ${fmtEUR(data.custo)}`);
+    logHistory(data.id ? "Editou" : "Criou", "Backup", backupColabNome(data), `${data.tipo} · ${data.origem} → ${data.destino} · ${fmtEUR(data.custo)}`);
     setModal(null);
   };
 
@@ -1618,7 +1635,7 @@ function BackupsView({ employees, monthOptions }) {
               backups.map(b => (
                 <tr key={b.id} className="border-b border-[var(--border-c)] last:border-0 hover:bg-gray-50/60">
                   <td className="px-5 py-3">{b.data?.split("-").reverse().join("/")}</td>
-                  <td className="px-5 py-3 font-semibold">{empName(b.colaboradorId)}</td>
+                  <td className="px-5 py-3 font-semibold">{backupColabNome(b)}</td>
                   <td className="px-5 py-3">
                     <span className={`px-2 py-0.5 rounded-md text-xs font-semibold ${b.tipo==="Interno" ? "bg-teal-50 text-teal-600" : "bg-amber-50 text-amber-600"}`}>{b.tipo}</span>
                   </td>
