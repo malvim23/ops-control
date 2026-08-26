@@ -991,23 +991,25 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
             <table className="text-xs w-full">
               <thead>
                 <tr>
-                  <th className="sticky-col bg-white text-left px-3 py-2 border-b border-r border-[var(--border-c)] font-bold text-gray-400 w-16 top-0" style={{position:"sticky", top:0, zIndex:6}}>DIA</th>
+                  <th className="sticky-col bg-white text-left px-3 border-b border-r border-[var(--border-c)] font-bold text-gray-400 w-16" style={{position:"sticky", top:0, zIndex:6, height:"26px"}}>
+                    <span className="leading-[26px]">DIA</span>
+                  </th>
                   {visibleStores.map(s => {
                     const emps = empByStore(s.id);
                     if (emps.length === 0) return null;
                     return (
-                      <th key={s.id} colSpan={emps.length} className="text-center px-2 py-2 border-b border-l border-[var(--border-c)] font-extrabold text-[11px] tracking-wide sticky top-0" style={{ color: s.cor, background: (s.cor||"#999")+"14", position:"sticky", top:0, zIndex:4 }}>
-                        {s.nome.toUpperCase()}
+                      <th key={s.id} colSpan={emps.length} className="border-b border-l border-[var(--border-c)] font-extrabold sticky top-0 overflow-hidden" style={{ color: s.cor, background: (s.cor||"#999")+"14", position:"sticky", top:0, zIndex:4, height:"26px" }} title={s.nome}>
+                        <div className="w-full px-1.5 truncate text-[10px] leading-[26px]">{s.nome.toUpperCase()}</div>
                       </th>
                     );
                   })}
                 </tr>
                 <tr>
-                  <th className="sticky-col bg-white border-b border-r border-[var(--border-c)]" style={{position:"sticky", top:28, zIndex:6}}></th>
+                  <th className="sticky-col bg-white border-b border-r border-[var(--border-c)]" style={{position:"sticky", top:26, zIndex:6, height:"34px"}}></th>
                   {visibleStores.map(s => empByStore(s.id).map(e => (
-                    <th key={e.id} className="px-2 py-2 border-b border-l border-[var(--border-c)] text-center font-semibold whitespace-nowrap sticky bg-white" style={{position:"sticky", top:28, zIndex:3}}>
-                      <div className="text-[11px]">{e.nome}</div>
-                      <div className="text-[9px] text-gray-400 font-normal">{e.turno}</div>
+                    <th key={e.id} className="px-2 border-b border-l border-[var(--border-c)] text-center font-semibold overflow-hidden sticky bg-white" style={{position:"sticky", top:26, zIndex:3, height:"34px"}} title={`${e.nome} · ${e.turno}`}>
+                      <div className="text-[11px] truncate">{e.nome}</div>
+                      <div className="text-[9px] text-gray-400 font-normal truncate">{e.turno}</div>
                     </th>
                   )))}
                 </tr>
