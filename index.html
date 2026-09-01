@@ -1809,8 +1809,6 @@ function App() {
 
   const saveCellStatus = useCallback(async (mk, empId, day, value) => {
     const ref = col("schedule").doc(mk);
-    const field = `cells.${cellKey(empId, day)}`;
-    await ref.set({ [cellKey(empId, day)]: null }, { merge: false }).catch(()=>{}); // no-op guard
     await ref.set({ cells: { [cellKey(empId, day)]: value } }, { merge: true });
     if (scheduleCache.current[mk]) scheduleCache.current[mk][cellKey(empId, day)] = value;
   }, []);
