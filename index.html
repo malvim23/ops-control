@@ -895,6 +895,15 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
     el.style.maxHeight = "none";
     el.style.overflow = "visible";
 
+    // 1b) Neutraliza também qualquer "overflow: hidden/auto" nos contentores
+    //     acima (ex: o cartão branco à volta da tabela) — senão continuam a
+    //     recortar as colunas mais à direita mesmo com o passo 1 feito.
+    const ancestors = [];
+    let node = el.parentElement;
+    while (node && node !== document.body) { ancestors.push(node); node = node.parentElement; }
+    const ancestorOriginal = ancestors.map(n => ({ overflow: n.style.overflow, overflowX: n.style.overflowX, overflowY: n.style.overflowY, maxWidth: n.style.maxWidth }));
+    ancestors.forEach(n => { n.style.overflow = "visible"; n.style.overflowX = "visible"; n.style.overflowY = "visible"; n.style.maxWidth = "none"; });
+
     // 2) Neutraliza position:sticky (cabeçalhos e coluna "DIA") — sem um
     //    contentor com scroll, o sticky pode "colar-se" ao viewport e
     //    estragar a captura. Guarda o valor original de cada elemento para
@@ -916,6 +925,8 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
         backgroundColor: "#ffffff",
         scale: 2,
         useCORS: true,
+        width: tableEl.scrollWidth,
+        height: tableEl.scrollHeight,
       });
       const nomeFicheiro = `grelha-${MESES[m]}-${y}`
         .toLowerCase()
@@ -931,6 +942,12 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
     } finally {
       // 3) Repõe tudo como estava
       stickyEls.forEach((n, i) => { n.style.position = stickyOriginal[i] || ""; });
+      ancestors.forEach((n, i) => {
+        n.style.overflow = ancestorOriginal[i].overflow;
+        n.style.overflowX = ancestorOriginal[i].overflowX;
+        n.style.overflowY = ancestorOriginal[i].overflowY;
+        n.style.maxWidth = ancestorOriginal[i].maxWidth;
+      });
       el.style.maxHeight = prevMaxHeight;
       el.style.overflow = prevOverflow;
       setExporting(false);
