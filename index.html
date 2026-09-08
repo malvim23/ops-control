@@ -195,6 +195,7 @@ const monthKey = (y, m) => `${y}-${pad2(m + 1)}`;
 const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
 const fmtEUR = (n) => `€${(n || 0).toLocaleString("pt-PT")}`;
 const cellKey = (empId, day) => `${empId}_${day}`;
+const arrivalKey = (storeId, day) => `${storeId}_${day}`;
 
 /* ---------------------------------------------------------------------- */
 /* Ícones (inline SVG, sem dependências externas -> poupa dados)          */
@@ -803,11 +804,12 @@ function CellStoreMenu({ anchorRect, options, value, onSelect, onClose }) {
   );
 }
 
-function GridView({ stores, employees, clients, getScheduleForMonth, saveCellStatus }) {
+function GridView({ stores, employees, clients, getScheduleForMonth, saveCellStatus, getArrivalsForMonth, saveArrivalTime }) {
   const now = new Date();
   const [y, setY] = useState(now.getFullYear());
   const [m, setM] = useState(now.getMonth());
   const [schedule, setSchedule] = useState({});
+  const [arrivals, setArrivals] = useState({});
   const [loading, setLoading] = useState(true);
   const [fLoja, setFLoja] = useState("");
   const [fCliente, setFCliente] = useState("");
@@ -821,9 +823,17 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    getScheduleForMonth(mk).then((s) => { if (alive) { setSchedule(s); setLoading(false); } });
+    Promise.all([getScheduleForMonth(mk), getArrivalsForMonth(mk)]).then(([s, a]) => {
+      if (alive) { setSchedule(s); setArrivals(a); setLoading(false); }
+    });
     return () => { alive = false; };
   }, [mk]);
+
+  const setArrival = async (storeId, day, value) => {
+    const key = arrivalKey(storeId, day);
+    setArrivals(prev => ({ ...prev, [key]: value }));
+    await saveArrivalTime(mk, storeId, day, value);
+  };
 
   const nDays = daysInMonth(y, m);
   const days = Array.from({ length: nDays }, (_, i) => i + 1);
@@ -995,8 +1005,9 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
                   {visibleStores.map(s => {
                     const emps = empByStore(s.id);
                     if (emps.length === 0) return null;
+                    const hasArrival = !!s.horaChegada;
                     return (
-                      <th key={s.id} colSpan={emps.length} className="text-center px-2 py-2 border-b border-l border-[var(--border-c)] font-extrabold text-[11px] tracking-wide sticky top-0" style={{ color: s.cor, background: (s.cor||"#999")+"14", position:"sticky", top:0, zIndex:4 }}>
+                      <th key={s.id} colSpan={emps.length + (hasArrival ? 1 : 0)} className="text-center px-2 py-2 border-b border-l border-[var(--border-c)] font-extrabold text-[11px] tracking-wide sticky top-0" style={{ color: s.cor, background: (s.cor||"#999")+"14", position:"sticky", top:0, zIndex:4 }}>
                         {s.nome.toUpperCase()}
                       </th>
                     );
@@ -1004,12 +1015,26 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
                 </tr>
                 <tr>
                   <th className="sticky-col bg-white border-b border-r border-[var(--border-c)]" style={{position:"sticky", top:28, zIndex:6}}></th>
-                  {visibleStores.map(s => empByStore(s.id).map(e => (
-                    <th key={e.id} className="px-2 py-2 border-b border-l border-[var(--border-c)] text-center font-semibold whitespace-nowrap sticky bg-white" style={{position:"sticky", top:28, zIndex:3}}>
-                      <div className="text-[11px]">{e.nome}</div>
-                      <div className="text-[9px] text-gray-400 font-normal">{e.turno}</div>
-                    </th>
-                  )))}
+                  {visibleStores.map(s => {
+                    const emps = empByStore(s.id);
+                    if (emps.length === 0) return null;
+                    const hasArrival = !!s.horaChegada;
+                    return (
+                      <React.Fragment key={s.id}>
+                        {hasArrival && (
+                          <th className="px-2 py-2 border-b border-l border-[var(--border-c)] text-center font-semibold whitespace-nowrap sticky bg-white" style={{position:"sticky", top:28, zIndex:3, minWidth:"90px"}}>
+                            <div className="text-[10px] leading-tight">HORA CHEGADA<br/>CAMIÃO</div>
+                          </th>
+                        )}
+                        {emps.map(e => (
+                          <th key={e.id} className="px-2 py-2 border-b border-l border-[var(--border-c)] text-center font-semibold whitespace-nowrap sticky bg-white" style={{position:"sticky", top:28, zIndex:3}}>
+                            <div className="text-[11px]">{e.nome}</div>
+                            <div className="text-[9px] text-gray-400 font-normal">{e.turno}</div>
+                          </th>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -1021,32 +1046,57 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
                       <td className={`sticky-col bg-white px-3 py-1.5 border-b border-r border-[var(--border-c)] font-bold ${isWeekend ? "text-red-500" : "text-gray-600"}`}>
                         {day} <span className="font-normal text-[10px]">{DIAS_SEMANA[dow]}</span>
                       </td>
-                      {visibleStores.map(s => empByStore(s.id).map(e => {
-                        const k = cellKey(e.id, day);
-                        const isPoolStore = s.tipo === "backup_pool";
-                        const val = effectiveValue(e, day); // aplica folga fixa também nas lojas pool
-                        const isAuto = !schedule[k] && val === "Folga";
-                        const meta = statusMeta(val);
-                        // Nas lojas pool, o seletor de "para qual loja foi o backup" só aparece
-                        // quando a célula NÃO é folga (fixa ou manual) — senão mostra o status normal.
-                        const renderAsPool = isPoolStore && val !== "Folga";
-                        const dimmed = fStatus && val !== fStatus && !renderAsPool;
-                        const poolLabel = renderAsPool ? (storeById(val)?.nome || (val ? val : "—")) : null;
+                      {visibleStores.map(s => {
+                        const emps = empByStore(s.id);
+                        if (emps.length === 0) return null;
+                        const hasArrival = !!s.horaChegada;
                         return (
-                          <td key={k} className="border-b border-l border-[var(--border-c)] p-0.5 text-center" style={{ opacity: dimmed ? 0.25 : 1 }}>
-                            {renderAsPool ? (
-                              <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[80px] rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 px-1.5 truncate" style={{ background: val ? "#eff6ff" : "#f3f4f6", color: val ? "#1d4ed8" : "#9ca3af" }}>
-                                <span className="truncate">{poolLabel}</span>
-                                <Icon path={ICONS.chevronDown} size={10} className="shrink-0" />
-                              </button>
-                            ) : (
-                              <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[52px] rounded-md text-[11px] font-bold flex items-center justify-center" style={{ background: meta.bg, color: meta.fg, boxShadow: isAuto ? "inset 0 0 0 1px #c4b5fd" : "none" }} title={isAuto ? "Folga fixa automática" : ""}>
-                                {meta.label}
-                              </button>
+                          <React.Fragment key={s.id}>
+                            {hasArrival && (
+                              <td className="border-b border-l border-[var(--border-c)] p-0.5 text-center">
+                                <input
+                                  key={`${mk}-${arrivalKey(s.id, day)}`}
+                                  type="text"
+                                  className="w-full h-7 min-w-[80px] rounded-md text-[11px] font-semibold text-center border border-transparent hover:border-[var(--border-c)] focus:border-[var(--accent)] focus:outline-none bg-transparent"
+                                  placeholder="—"
+                                  defaultValue={arrivals[arrivalKey(s.id, day)] || ""}
+                                  onBlur={(ev) => {
+                                    const v = ev.target.value.trim();
+                                    if (v !== (arrivals[arrivalKey(s.id, day)] || "")) setArrival(s.id, day, v);
+                                  }}
+                                  onKeyDown={(ev) => { if (ev.key === "Enter") ev.target.blur(); }}
+                                />
+                              </td>
                             )}
-                          </td>
+                            {emps.map(e => {
+                              const k = cellKey(e.id, day);
+                              const isPoolStore = s.tipo === "backup_pool";
+                              const val = effectiveValue(e, day); // aplica folga fixa também nas lojas pool
+                              const isAuto = !schedule[k] && val === "Folga";
+                              const meta = statusMeta(val);
+                              // Nas lojas pool, o seletor de "para qual loja foi o backup" só aparece
+                              // quando a célula NÃO é folga (fixa ou manual) — senão mostra o status normal.
+                              const renderAsPool = isPoolStore && val !== "Folga";
+                              const dimmed = fStatus && val !== fStatus && !renderAsPool;
+                              const poolLabel = renderAsPool ? (storeById(val)?.nome || (val ? val : "—")) : null;
+                              return (
+                                <td key={k} className="border-b border-l border-[var(--border-c)] p-0.5 text-center" style={{ opacity: dimmed ? 0.25 : 1 }}>
+                                  {renderAsPool ? (
+                                    <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[80px] rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 px-1.5 truncate" style={{ background: val ? "#eff6ff" : "#f3f4f6", color: val ? "#1d4ed8" : "#9ca3af" }}>
+                                      <span className="truncate">{poolLabel}</span>
+                                      <Icon path={ICONS.chevronDown} size={10} className="shrink-0" />
+                                    </button>
+                                  ) : (
+                                    <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[52px] rounded-md text-[11px] font-bold flex items-center justify-center" style={{ background: meta.bg, color: meta.fg, boxShadow: isAuto ? "inset 0 0 0 1px #c4b5fd" : "none" }} title={isAuto ? "Folga fixa automática" : ""}>
+                                      {meta.label}
+                                    </button>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </React.Fragment>
                         );
-                      }))}
+                      })}
                     </tr>
                   );
                 })}
@@ -1242,7 +1292,7 @@ function EmployeesView({ employees, stores }) {
 /* LOJAS                                                                  */
 /* ---------------------------------------------------------------------- */
 function StoreModal({ store, clients, onClose, onSave }) {
-  const [form, setForm] = useState(store || { nome: "", clienteId: clients[0]?.id || "", categoria: "DISTRIBUICAO", ccCode: "", meta: 95, limBackup: 5, cor: STORE_COLORS[0], tipo: "normal" });
+  const [form, setForm] = useState(store || { nome: "", clienteId: clients[0]?.id || "", categoria: "DISTRIBUICAO", ccCode: "", meta: 95, limBackup: 5, cor: STORE_COLORS[0], tipo: "normal", horaChegada: false });
   const set = (k,v) => setForm(prev=>({...prev, [k]:v}));
   const submit = (e) => { e.preventDefault(); if(!form.nome.trim()) return; onSave(form); };
   return (
@@ -1280,6 +1330,15 @@ function StoreModal({ store, clients, onClose, onSave }) {
             <span>
               <span className="block text-sm font-semibold">Loja de Backup Interno (pool de cobertura)</span>
               <span className="block text-xs text-gray-400 mt-0.5">Nas células da Grelha, em vez dos status habituais, aparece a lista das lojas do mesmo cliente — para indicar para qual loja o colaborador foi fazer o backup.</span>
+            </span>
+          </label>
+        </Field>
+        <Field label="Coluna Extra">
+          <label className="flex items-start gap-2.5 p-3 rounded-lg border border-[var(--border-c)] cursor-pointer hover:bg-gray-50">
+            <input type="checkbox" className="mt-0.5" checked={!!form.horaChegada} onChange={e=>set("horaChegada", e.target.checked)} />
+            <span>
+              <span className="block text-sm font-semibold">Hora de Chegada do Camião</span>
+              <span className="block text-xs text-gray-400 mt-0.5">Adiciona na Grelha, junto a esta loja, uma coluna para registar a hora de chegada do camião em cada dia (ou "Não veio").</span>
             </span>
           </label>
         </Field>
@@ -1767,6 +1826,7 @@ function App() {
     try { return localStorage.getItem("opsTheme") === "dark"; } catch (e) { return false; }
   });
   const scheduleCache = useRef({});
+  const arrivalsCache = useRef({});
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -1809,8 +1869,27 @@ function App() {
 
   const saveCellStatus = useCallback(async (mk, empId, day, value) => {
     const ref = col("schedule").doc(mk);
+    const field = `cells.${cellKey(empId, day)}`;
+    await ref.set({ [cellKey(empId, day)]: null }, { merge: false }).catch(()=>{}); // no-op guard
     await ref.set({ cells: { [cellKey(empId, day)]: value } }, { merge: true });
     if (scheduleCache.current[mk]) scheduleCache.current[mk][cellKey(empId, day)] = value;
+  }, []);
+
+  // Hora de chegada do camião: guardada no mesmo documento mensal ("schedule/{mk}"),
+  // num campo separado "arrivals" (chave por loja+dia) -> não interfere na grelha de status.
+  const getArrivalsForMonth = useCallback(async (mk) => {
+    if (arrivalsCache.current[mk]) return arrivalsCache.current[mk];
+    const snap = await col("schedule").doc(mk).get({ source: "default" });
+    const data = snap.exists ? (snap.data().arrivals || {}) : {};
+    arrivalsCache.current[mk] = data;
+    return data;
+  }, []);
+
+  const saveArrivalTime = useCallback(async (mk, storeId, day, value) => {
+    const ref = col("schedule").doc(mk);
+    const key = arrivalKey(storeId, day);
+    await ref.set({ arrivals: { [key]: value } }, { merge: true });
+    if (arrivalsCache.current[mk]) arrivalsCache.current[mk][key] = value;
   }, []);
 
   const monthOptions = useMemo(() => {
@@ -1831,7 +1910,7 @@ function App() {
       <div className="flex-1 min-w-0">
         <Header user={user} dark={dark} onToggleDark={toggleDark} />
         {view === "dashboard" && <DashboardView stores={stores} employees={employees} getScheduleForMonth={getScheduleForMonth} monthOptions={monthOptions} />}
-        {view === "grid" && <GridView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} saveCellStatus={saveCellStatus} />}
+        {view === "grid" && <GridView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} saveCellStatus={saveCellStatus} getArrivalsForMonth={getArrivalsForMonth} saveArrivalTime={saveArrivalTime} />}
         {view === "employees" && <EmployeesView employees={employees} stores={stores} />}
         {view === "stores" && <StoresView stores={stores} employees={employees} clients={clients} />}
         {view === "backups" && <BackupsView employees={employees} monthOptions={monthOptions} />}
