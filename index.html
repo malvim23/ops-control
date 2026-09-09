@@ -179,6 +179,9 @@ const STATUS_OPTIONS = [
   { value: "Backup Externo",  label: "Backup Ext.",  bg: "#fef3c7", fg: "#92400e", dot: "#f59e0b" },
   { value: "Folga",           label: "Folga",        bg: "#eef0f4", fg: "#4b5563", dot: "#9ca3af" },
   { value: "Baixa",           label: "Baixa",        bg: "#ede9fe", fg: "#6d28d9", dot: "#a855f7" },
+  { value: "Abandono",        label: "Abandono",     bg: "#7f1d1d", fg: "#fecaca", dot: "#b91c1c" },
+  // Dia que não vai ser preenchido (ex.: fora de período, não aplicável) -> bloco cinza escuro, sem texto na célula.
+  { value: "Bloqueado",       label: "Sem preenchimento", bg: "#4b5563", fg: "#4b5563", dot: "#6b7280", blank: true },
 ];
 const statusMeta = (v) => STATUS_OPTIONS.find(s => s.value === v) || STATUS_OPTIONS[0];
 
@@ -760,10 +763,11 @@ function CellStatusMenu({ anchorRect, value, onSelect, onClose }) {
 
 function CellStoreMenu({ anchorRect, options, value, onSelect, onClose }) {
   const [pos, setPos] = useState(null);
+  const quickStatuses = ["Falta", "Abandono", "Bloqueado"].map(v => STATUS_OPTIONS.find(o => o.value === v)).filter(Boolean);
 
   useEffect(() => {
     const menuW = 210;
-    const menuH = Math.min(options.length, 8) * 38 + 60;
+    const menuH = Math.min(options.length, 8) * 38 + 60 + quickStatuses.length * 38 + 20;
     let top = anchorRect.bottom + 6;
     let left = anchorRect.left;
     if (left + menuW > window.innerWidth - 8) left = window.innerWidth - menuW - 8;
@@ -792,6 +796,16 @@ function CellStoreMenu({ anchorRect, options, value, onSelect, onClose }) {
           </button>
         ))}
         {options.length === 0 && <div className="px-3.5 py-2 text-sm text-gray-400">Sem outras lojas neste cliente.</div>}
+        <div className="border-t border-[var(--border-c)] mt-1 pt-1">
+          <div className="px-3.5 pb-1 pt-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wide">Outras opções:</div>
+          {quickStatuses.map(o => (
+            <button key={o.value} onClick={() => onSelect(o.value)}
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-left hover:bg-gray-50 ${value === o.value ? "bg-gray-50 font-semibold" : ""}`}>
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: o.dot }}></span>
+              <span>{o.label}</span>
+            </button>
+          ))}
+        </div>
         <div className="border-t border-[var(--border-c)] mt-1 pt-1">
           <button onClick={() => onSelect("")} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-left text-gray-400 hover:bg-gray-50">
             <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: "#e5e7eb" }}></span>
@@ -1075,8 +1089,10 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
                               const isAuto = !schedule[k] && val === "Folga";
                               const meta = statusMeta(val);
                               // Nas lojas pool, o seletor de "para qual loja foi o backup" só aparece
-                              // quando a célula NÃO é folga (fixa ou manual) — senão mostra o status normal.
-                              const renderAsPool = isPoolStore && val !== "Folga";
+                              // quando a célula não tem um status normal atribuído (Folga, Falta, Abandono, etc.)
+                              // — senão mostra o status normal, tal como nas lojas comuns.
+                              const isKnownStatus = !!val && STATUS_OPTIONS.some(o => o.value === val);
+                              const renderAsPool = isPoolStore && !isKnownStatus;
                               const dimmed = fStatus && val !== fStatus && !renderAsPool;
                               const poolLabel = renderAsPool ? (storeById(val)?.nome || (val ? val : "—")) : null;
                               return (
@@ -1087,8 +1103,8 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
                                       <Icon path={ICONS.chevronDown} size={10} className="shrink-0" />
                                     </button>
                                   ) : (
-                                    <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[52px] rounded-md text-[11px] font-bold flex items-center justify-center" style={{ background: meta.bg, color: meta.fg, boxShadow: isAuto ? "inset 0 0 0 1px #c4b5fd" : "none" }} title={isAuto ? "Folga fixa automática" : ""}>
-                                      {meta.label}
+                                    <button onClick={(ev)=>openCellMenu(ev, e.id, day, s)} className="w-full h-7 min-w-[52px] rounded-md text-[11px] font-bold flex items-center justify-center" style={{ background: meta.bg, color: meta.fg, boxShadow: isAuto ? "inset 0 0 0 1px #c4b5fd" : "none" }} title={isAuto ? "Folga fixa automática" : meta.blank ? meta.label : ""}>
+                                      {meta.blank ? "" : meta.label}
                                     </button>
                                   )}
                                 </td>
