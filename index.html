@@ -180,8 +180,8 @@ const STATUS_OPTIONS = [
   { value: "Folga",           label: "Folga",        bg: "#eef0f4", fg: "#4b5563", dot: "#9ca3af" },
   { value: "Baixa",           label: "Baixa",        bg: "#ede9fe", fg: "#6d28d9", dot: "#a855f7" },
   { value: "Abandono",        label: "Abandono",     bg: "#7f1d1d", fg: "#fecaca", dot: "#b91c1c" },
-  // Dia que não vai ser preenchido (ex.: fora de período, não aplicável) -> bloco cinza escuro, sem texto na célula.
-  { value: "Bloqueado",       label: "Sem preenchimento", bg: "#4b5563", fg: "#4b5563", dot: "#6b7280", blank: true },
+  // Dia que não vai ser preenchido (ex.: fora de período, não aplicável) -> bloco cinza claro, sem texto na célula.
+  { value: "Bloqueado",       label: "Sem preenchimento", bg: "#d1d5db", fg: "#d1d5db", dot: "#9ca3af", blank: true },
 ];
 const statusMeta = (v) => STATUS_OPTIONS.find(s => s.value === v) || STATUS_OPTIONS[0];
 
