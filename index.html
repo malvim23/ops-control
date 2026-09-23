@@ -832,6 +832,12 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
   const [editingCell, setEditingCell] = useState(null);
   const [exporting, setExporting] = useState(false);
   const gridScrollRef = useRef(null);
+  // Altura real (em px) da 1ª linha do cabeçalho (nomes das lojas), medida
+  // dinamicamente — evita usar um valor fixo (ex.: 28px) como "top" da 2ª
+  // linha (nomes dos colaboradores), que ficava desalinhado sempre que essa
+  // linha tinha uma altura diferente (ex.: lojas com muitos colaboradores).
+  const gridHeadRow1Ref = useRef(null);
+  const [gridHeadRow2Top, setGridHeadRow2Top] = useState(28);
 
   const mk = monthKey(y, m);
   useEffect(() => {
@@ -858,6 +864,20 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
   const visibleStores = storesSorted.filter(s => (!fLoja || s.id === fLoja) && (!fCliente || s.clienteId === fCliente));
   const empByStore = (storeId) => activeEmployees.filter(e => e.lojaId === storeId && (!fTurno || e.turno === fTurno));
   const storeById = (id) => stores.find(s => s.id === id);
+
+  useEffect(() => {
+    const rowEl = gridHeadRow1Ref.current;
+    if (!rowEl) return;
+    const updateHeight = () => {
+      const h = rowEl.getBoundingClientRect().height;
+      if (h > 0) setGridHeadRow2Top(h);
+    };
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(updateHeight);
+    ro.observe(rowEl);
+    return () => ro.disconnect();
+  }, [visibleStores.length, activeEmployees.length, fLoja, fCliente, fTurno]);
 
   // Loja "Backup Interno" (pool): a célula não mostra status, mostra a lista de lojas do mesmo cliente
   const poolOptionsFor = (store) => stores
@@ -1014,21 +1034,21 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
           <div ref={gridScrollRef} className="overflow-auto grid-scroll" style={{ maxHeight: "72vh" }}>
             <table className="text-xs w-full">
               <thead>
-                <tr>
+                <tr ref={gridHeadRow1Ref}>
                   <th className="sticky-col bg-white text-left px-3 py-2 border-b border-r border-[var(--border-c)] font-bold text-gray-400 w-16 top-0" style={{position:"sticky", top:0, zIndex:6}}>DIA</th>
                   {visibleStores.map(s => {
                     const emps = empByStore(s.id);
                     if (emps.length === 0) return null;
                     const hasArrival = !!s.horaChegada;
                     return (
-                      <th key={s.id} colSpan={emps.length + (hasArrival ? 1 : 0)} className="text-center px-2 py-2 border-b border-l border-[var(--border-c)] font-extrabold text-[11px] tracking-wide sticky top-0" style={{ color: s.cor, background: (s.cor||"#999")+"14", position:"sticky", top:0, zIndex:4 }}>
+                      <th key={s.id} colSpan={emps.length + (hasArrival ? 1 : 0)} className="text-center px-2 py-2 border-b border-l border-[var(--border-c)] font-extrabold text-[11px] tracking-wide sticky top-0" style={{ color: s.cor, background: `color-mix(in srgb, ${s.cor||"#999"} 8%, #ffffff 100%)`, position:"sticky", top:0, zIndex:4 }}>
                         {s.nome.toUpperCase()}
                       </th>
                     );
                   })}
                 </tr>
                 <tr>
-                  <th className="sticky-col bg-white border-b border-r border-[var(--border-c)]" style={{position:"sticky", top:28, zIndex:6}}></th>
+                  <th className="sticky-col bg-white border-b border-r border-[var(--border-c)]" style={{position:"sticky", top:gridHeadRow2Top, zIndex:6}}></th>
                   {visibleStores.map(s => {
                     const emps = empByStore(s.id);
                     if (emps.length === 0) return null;
@@ -1036,12 +1056,12 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
                     return (
                       <React.Fragment key={s.id}>
                         {hasArrival && (
-                          <th className="px-2 py-2 border-b border-l border-[var(--border-c)] text-center font-semibold whitespace-nowrap sticky bg-white" style={{position:"sticky", top:28, zIndex:3, minWidth:"90px"}}>
+                          <th className="px-2 py-2 border-b border-l border-[var(--border-c)] text-center font-semibold whitespace-nowrap sticky bg-white" style={{position:"sticky", top:gridHeadRow2Top, zIndex:3, minWidth:"90px"}}>
                             <div className="text-[10px] leading-tight">HORA CHEGADA<br/>CAMIÃO</div>
                           </th>
                         )}
                         {emps.map(e => (
-                          <th key={e.id} className="px-2 py-2 border-b border-l border-[var(--border-c)] text-center font-semibold whitespace-nowrap sticky bg-white" style={{position:"sticky", top:28, zIndex:3}}>
+                          <th key={e.id} className="px-2 py-2 border-b border-l border-[var(--border-c)] text-center font-semibold whitespace-nowrap sticky bg-white" style={{position:"sticky", top:gridHeadRow2Top, zIndex:3}}>
                             <div className="text-[11px]">{e.nome}</div>
                             <div className="text-[9px] text-gray-400 font-normal">{e.turno}</div>
                           </th>
