@@ -497,7 +497,7 @@ function ChartCanvas({ type, data, options, height = 240 }) {
 /* Relações reais: colaborador.lojaId -> loja.clienteId -> cliente.       */
 /* ---------------------------------------------------------------------- */
 const ABS_TYPES = ["Falta", "Meia Falta", "Abandono"];
-const TYPE_COLORS = { "Falta": "#ef4444", "Meia Falta": "#f59e0b", "Abandono": "#7f1d1d" };
+const TYPE_COLORS = { "Falta": "#ef4444", "Meia Falta": "#f59e0b", "Abandono": "#7f1d1d", "Backup Interno": "#0d9488", "Backup Externo": "#d97706", "Pool": "#0d9488" };
 const COB_LABEL = { int: "Backup interno", ext: "Backup externo", sem: "Sem backup" };
 const COB_COLOR = { int: "#0d9488", ext: "#f59e0b", sem: "#ef4444" };
 
@@ -542,18 +542,18 @@ function addRec(c, r) {
     case "Abandono": c.abandono++; break;
     case "Baixa": c.baixa++; break;
     case "Formação": c.formacao++; break;
-    case "Backup Interno": c.bkpInt++; break;
-    case "Backup Externo": c.bkpExt++; break;
+    case "Backup Interno": c.bkpInt++; c.cInt++; break;
+    case "Backup Externo": c.bkpExt++; c.cExt++; break;
     case "Folga": c.folga++; break;
     case "Bloqueado": c.bloq++; break;
-    case "Pool": c.pool++; break;
+    case "Pool": c.pool++; c.cInt++; break;
     default: break;
   }
-  if (r.cob === "int") c.cInt++; else if (r.cob === "ext") c.cExt++; else if (r.cob === "sem") c.sem++;
+  if (r.cob === "sem") c.sem++;
 }
 const totalFaltas = (c) => c.falta + c.meia + c.abandono;
 const totalBkpInt = (c) => c.bkpInt + c.pool; // status "Backup Interno" + atribuições da loja pool
-const outrosEstados = (c) => c.formacao + c.folga + c.bloq + c.bkpInt + c.bkpExt + c.pool;
+const outrosEstados = (c) => c.formacao + c.folga + c.bloq;
 const presencaPct = (c) => {
   const base = c.ok + c.falta + c.meia + c.abandono + c.bkpInt + c.bkpExt + c.pool;
   return base > 0 ? Math.round((c.ok / base) * 1000) / 10 : null;
@@ -585,12 +585,15 @@ function buildRecords(schedules, employees, stores, clients) {
       else if (storeById.has(val)) { st = "Pool"; target = val; }
       if (!st) return;
       const emp = empById.get(empId);
-      const store = emp ? storeById.get(emp.lojaId) : null;
+      const ownStore = emp ? storeById.get(emp.lojaId) : null;
+      // Backup interno da loja pool: conta para a loja/cliente COBERTOS (ID guardado na célula).
+      // Restantes estados (incl. "Backup Interno"/"Backup Externo"): loja/cliente do colaborador na grelha.
+      const store = st === "Pool" ? storeById.get(target) : ownStore;
       const client = store ? clientById.get(store.clienteId) : null;
       const dt = new Date(y, m0, day);
       out.push({
         mk, day, date: isoDate(y, m0, day), dow: dt.getDay(), wk: dateKey(weekStartOf(y, m0, day)),
-        empId, emp: emp ? emp.nome : "Colaborador removido",
+        empId, emp: emp ? emp.nome : "Colaborador removido", origStore: ownStore ? ownStore.nome : "",
         storeId: store ? store.id : "", store: store ? store.nome : "Sem loja",
         clientId: client ? client.id : "", client: client ? client.nome : "Sem cliente", clientCor: client ? client.cor : "#9ca3af",
         st, target, cob: "",
@@ -616,30 +619,25 @@ function matchBackups(backups, stores) {
   });
 }
 
-// Cobertura de cada ausência (Falta / Meia Falta / Abandono) -> r.cob = "int" | "ext" | "sem".
-// Ligação real = mesma loja + mesmo dia. Fontes de cobertura:
-//  - Interna: células da loja pool com o ID da loja em falta (grelha) OU registo de backup Interno com destino = loja.
-//    (usa-se o MÁXIMO das duas fontes por loja/dia para não contar o mesmo backup duas vezes)
-//  - Externa: registos de backup Externo com destino = loja, nesse dia.
-// Cada unidade de cobertura só cobre UMA ausência (sem duplicações). Estados "Backup Interno/Externo" da grelha
-// NÃO são assumidos como cobertura de uma falta (não indicam qual a loja/falta coberta).
-function annotateCoverage(recs, bks) {
-  const pool = {}, ib = {}, eb = {};
-  recs.forEach((r) => { if (r.st === "Pool" && r.target) { const k = r.target + "|" + r.date; pool[k] = (pool[k] || 0) + 1; } });
-  bks.forEach((b) => {
-    if (!b._sid || !b.data) return;
-    const k = b._sid + "|" + b.data;
-    if (b.tipo === "Externo") eb[k] = (eb[k] || 0) + 1; else ib[k] = (ib[k] || 0) + 1;
+// Cobertura das faltas — SÓ com a grelha. Cada célula "Backup Interno" / "Backup Externo" (e cada atribuição
+// da loja pool, que conta como interno na loja coberta) conta como UMA falta com backup interno/externo.
+// Para saber quais faltas ficam "sem backup", cada backup emparelha com UMA ausência da mesma loja
+// (1.º no mesmo dia, depois na mesma semana, depois no mesmo mês) -> r.cob = "int" | "ext" | "sem".
+// Nunca se conta o mesmo backup duas vezes.
+function annotateCoverage(recs) {
+  const byStore = new Map();
+  recs.forEach((r) => {
+    const t = r.st === "Backup Interno" || r.st === "Pool" ? "int" : r.st === "Backup Externo" ? "ext" : null;
+    if (!t || !r.storeId) return;
+    let l = byStore.get(r.storeId); if (!l) { l = []; byStore.set(r.storeId, l); }
+    l.push({ t, date: r.date, wk: r.wk, mk: r.mk, used: false });
   });
-  const capInt = {}, capExt = {};
-  Object.keys(pool).concat(Object.keys(ib)).forEach((k) => { capInt[k] = Math.max(pool[k] || 0, ib[k] || 0); });
-  Object.keys(eb).forEach((k) => { capExt[k] = eb[k]; });
   const order = { "Falta": 0, "Abandono": 1, "Meia Falta": 2 };
-  recs.filter((r) => ABS_TYPES.includes(r.st)).sort((a, b) => order[a.st] - order[b.st]).forEach((r) => {
-    const k = r.storeId + "|" + r.date;
-    if ((capInt[k] || 0) > 0) { capInt[k]--; r.cob = "int"; }
-    else if ((capExt[k] || 0) > 0) { capExt[k]--; r.cob = "ext"; }
-    else r.cob = "sem";
+  recs.filter((r) => ABS_TYPES.includes(r.st)).sort((a, b) => order[a.st] - order[b.st] || a.date.localeCompare(b.date)).forEach((r) => {
+    const list = byStore.get(r.storeId) || [];
+    const pick = (fn) => list.find((x) => !x.used && fn(x) && x.t === "int") || list.find((x) => !x.used && fn(x));
+    const hit = pick((x) => x.date === r.date) || pick((x) => x.wk === r.wk) || pick((x) => x.mk === r.mk);
+    if (hit) { hit.used = true; r.cob = hit.t; } else r.cob = "sem";
   });
 }
 
@@ -680,7 +678,7 @@ function useOpsData({ months, stores, employees, clients, getScheduleForMonth, e
   const built = useMemo(() => {
     const recs = buildRecords(raw.schedules, employees, stores, clients);
     const bks = matchBackups(raw.backups, stores);
-    annotateCoverage(recs, bks);
+    annotateCoverage(recs);
     const monthHasData = {};
     Object.keys(raw.schedules).forEach((mk) => { monthHasData[mk] = Object.keys(raw.schedules[mk] || {}).length > 0; });
     return { recs, bks, monthHasData };
@@ -785,7 +783,7 @@ function OccurrenceTable({ items, maxH = 320 }) {
               <td className="px-3 py-1.5 border-b border-[var(--border-c)] font-semibold">{r.emp}</td>
               <td className="px-3 py-1.5 border-b border-[var(--border-c)]">{r.client}</td>
               <td className="px-3 py-1.5 border-b border-[var(--border-c)]">{r.store}</td>
-              <td className="px-3 py-1.5 border-b border-[var(--border-c)]"><Pill color={TYPE_COLORS[r.st] || "#6b7280"}>{r.st}</Pill></td>
+              <td className="px-3 py-1.5 border-b border-[var(--border-c)]"><Pill color={TYPE_COLORS[r.st] || "#6b7280"}>{r.st === "Pool" ? "Backup Interno (pool)" : r.st}</Pill></td>
               <td className="px-3 py-1.5 border-b border-[var(--border-c)]">{r.cob ? <Pill color={COB_COLOR[r.cob]}>{COB_LABEL[r.cob]}</Pill> : "—"}</td>
             </tr>
           ))}
@@ -836,11 +834,11 @@ function ClientFaltasTable({ groups }) {
             <th className="px-3 py-2 border-b border-[var(--border-c)]">Faltas</th>
             <th className="px-3 py-2 border-b border-[var(--border-c)]">Meias</th>
             <th className="px-3 py-2 border-b border-[var(--border-c)]">Abandonos</th>
-            <th className="px-3 py-2 border-b border-[var(--border-c)]">C/ Bkp Int.</th>
-            <th className="px-3 py-2 border-b border-[var(--border-c)]">C/ Bkp Ext.</th>
-            <th className="px-3 py-2 border-b border-[var(--border-c)]">Sem backup</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]" title="Células Backup Interno na grelha (inclui atribuições da loja pool)">C/ Bkp Int.</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]" title="Células Backup Externo na grelha">C/ Bkp Ext.</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]" title="Faltas sem nenhum backup da grelha na mesma loja">Sem backup</th>
             <th className="px-3 py-2 border-b border-[var(--border-c)]">Baixas</th>
-            <th className="px-3 py-2 border-b border-[var(--border-c)]" title="Formação, Folga, Bloqueado, Backup Int./Ext. (grelha) e atribuições pool">Outros</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]" title="Formação, Folga e Bloqueado">Outros</th>
           </tr>
         </thead>
         <tbody>
@@ -859,7 +857,7 @@ function ClientFaltasTable({ groups }) {
                         {STATE_ORDER.map(([label, k]) => (
                           <span key={k} className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: statusMeta(label).dot }}></span>{label}: <b className="text-[var(--text-primary)]">{g.tot[k]}</b></span>
                         ))}
-                        {g.tot.pool > 0 && <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: "#3b82f6" }}></span>Atribuições pool → loja: <b className="text-[var(--text-primary)]">{g.tot.pool}</b></span>}
+                        {g.tot.pool > 0 && <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: "#3b82f6" }}></span>Backup interno via loja pool: <b className="text-[var(--text-primary)]">{g.tot.pool}</b></span>}
                       </div>
                     </td>
                   </tr>
@@ -940,14 +938,14 @@ function DashboardView({ stores, employees, clients, getScheduleForMonth, monthO
       let s = map.get(r.store); if (!s) { s = emptyCounts(); map.set(r.store, s); }
       addRec(s, r);
     });
-    const rows = [...map.entries()].filter(([, c]) => totalFaltas(c) + c.baixa + c.bkpInt + c.bkpExt > 0).sort((a, b) => totalFaltas(b[1]) - totalFaltas(a[1]));
+    const rows = [...map.entries()].filter(([, c]) => totalFaltas(c) + c.baixa + totalBkpInt(c) + c.bkpExt > 0).sort((a, b) => totalFaltas(b[1]) - totalFaltas(a[1]));
     return {
       labels: rows.map(([n]) => n),
       datasets: [
         { label: "Falta", data: rows.map(([, c]) => c.falta), backgroundColor: "#ef4444" },
         { label: "Meia Falta", data: rows.map(([, c]) => c.meia), backgroundColor: "#f59e0b" },
         { label: "Abandono", data: rows.map(([, c]) => c.abandono), backgroundColor: "#7f1d1d" },
-        { label: "Backup Int.", data: rows.map(([, c]) => c.bkpInt), backgroundColor: "#14b8a6" },
+        { label: "Backup Int.", data: rows.map(([, c]) => totalBkpInt(c)), backgroundColor: "#14b8a6" },
         { label: "Backup Ext.", data: rows.map(([, c]) => c.bkpExt), backgroundColor: "#fbbf24" },
         { label: "Baixa", data: rows.map(([, c]) => c.baixa), backgroundColor: "#a855f7" },
       ],
@@ -957,7 +955,7 @@ function DashboardView({ stores, employees, clients, getScheduleForMonth, monthO
   const distribChart = useMemo(() => ({
     labels: ["OK", "Falta", "Meia Falta", "Formação", "Backup Int.", "Backup Ext.", "Folga", "Baixa", "Abandono", "Bloqueado"],
     datasets: [{
-      data: [tot.ok, tot.falta, tot.meia, tot.formacao, tot.bkpInt, tot.bkpExt, tot.folga, tot.baixa, tot.abandono, tot.bloq],
+      data: [tot.ok, tot.falta, tot.meia, tot.formacao, totalBkpInt(tot), tot.bkpExt, tot.folga, tot.baixa, tot.abandono, tot.bloq],
       backgroundColor: ["#22c55e", "#ef4444", "#f97316", "#3b82f6", "#0d9488", "#f59e0b", "#9ca3af", "#a855f7", "#7f1d1d", "#d1d5db"],
       borderWidth: 0,
     }],
@@ -1019,19 +1017,19 @@ function DashboardView({ stores, employees, clients, getScheduleForMonth, monthO
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 2xl:grid-cols-8 gap-3 mb-5">
             <MiniStat label="Total de faltas" value={totalFaltas(tot)} sub="Falta + Meia + Abandono" color="#ef4444" />
-            <MiniStat label="Faltas c/ bkp interno" value={tot.cInt} sub="cobertura interna" color="#0d9488" />
-            <MiniStat label="Faltas c/ bkp externo" value={tot.cExt} sub="cobertura externa" color="#d97706" />
-            <MiniStat label="Faltas sem backup" value={tot.sem} sub="sem cobertura registada" color="#ef4444" />
+            <MiniStat label="Faltas c/ bkp interno" value={tot.cInt} sub="backup interno na grelha" color="#0d9488" />
+            <MiniStat label="Faltas c/ bkp externo" value={tot.cExt} sub="backup externo na grelha" color="#d97706" />
+            <MiniStat label="Faltas sem backup" value={tot.sem} sub="sem backup na grelha" color="#ef4444" />
             <MiniStat label="Meias faltas" value={tot.meia} sub={`${tot.falta} faltas completas`} color="#f59e0b" />
             <MiniStat label="Abandonos" value={tot.abandono} sub="no mês" color="#b91c1c" />
             <MiniStat label="Baixas" value={tot.baixa} sub="dias de baixa" color="#8b5cf6" />
-            <MiniStat label="Outros estados" value={outrosEstados(tot)} sub="Formação, Folga, Bkp, Bloq." />
+            <MiniStat label="Outros estados" value={outrosEstados(tot)} sub="Formação, Folga, Bloq." />
           </div>
 
           <Card title={`Faltas por Cliente · ${monthLabel}`} className="mb-5" right={<span className="text-[11px] text-gray-400">Clique num cliente para ver o detalhe por loja</span>}>
             {groups.length === 0 ? <div className="text-sm text-gray-400 py-6 text-center">Sem registos para os filtros selecionados.</div> : <ClientFaltasTable groups={groups} />}
             <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">
-              Total de faltas = Falta + Meia Falta + Abandono. Cobertura = mesma loja e mesmo dia: células da loja pool que apontam para a loja em falta (ou registos de Backup interno com destino = loja, o maior dos dois) e registos de Backup externo com destino = loja; cada backup cobre apenas uma falta. Os estados “Backup Interno/Externo” da grelha contam-se em “Outros” e não são assumidos como cobertura de uma falta concreta.
+              Total de faltas = Falta + Meia Falta + Abandono. Cada célula da grelha marcada como Backup Interno (incluindo atribuições da loja pool, contadas na loja coberta) ou Backup Externo conta como uma falta com backup interno ou externo, respetivamente, na loja e cliente do colaborador. “Sem backup” = faltas que não conseguem ser emparelhadas com nenhum backup da mesma loja (mesmo dia, depois mesma semana, depois mesmo mês); cada backup emparelha com uma única falta.
             </p>
           </Card>
 
@@ -1046,11 +1044,9 @@ function DashboardView({ stores, employees, clients, getScheduleForMonth, monthO
             </Card>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-2 gap-4 mb-4">
             <StatCard icon={ICONS.check} label="Taxa de Presença" value={presencaPct(tot) === null ? "—" : `${presencaPct(tot)}%`} sub={`mês ${selMonth}`} iconBg="#e6f9f0" iconColor="#10b981" />
-            <StatCard icon={ICONS.swap} label="Backup Interno (grelha)" value={totalBkpInt(tot)} sub="estado + atribuições pool" iconBg="#f0fdfa" iconColor="#14b8a6" />
-            <StatCard icon={ICONS.shield} label="Backup Externo (grelha)" value={tot.bkpExt} sub="cobertura externa" iconBg="#fffbeb" iconColor="#f59e0b" />
-            <StatCard icon={ICONS.users} label="Custo Backups" value={fmtEUR(custoBackups)} sub={`${regInt} internos · ${regExt} externos registados`} iconBg="#f5f3ff" iconColor="#8b5cf6" />
+            <StatCard icon={ICONS.users} label="Custo Backups" value={fmtEUR(custoBackups)} sub="registos da aba Backups" iconBg="#f5f3ff" iconColor="#8b5cf6" />
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
             <StatCard icon={ICONS.store} label="Loja + Faltas" value={extra.lojaMax[0]} sub={`${extra.lojaMax[1]} ausências`} iconBg="#eef1ff" iconColor="#4f6ef7" />
@@ -1122,13 +1118,10 @@ function MonthlyComparativeTab({ months, recs, bks, monthHasData, selMonth }) {
     { label: "Meia Falta", data: v((r) => r.c.meia), backgroundColor: "#f59e0b" },
     { label: "Abandono", data: v((r) => r.c.abandono), backgroundColor: "#7f1d1d" },
   ] };
-  const bkpGrelhaChart = { labels, datasets: [
-    { label: "Backup Interno (grelha)", data: v((r) => totalBkpInt(r.c)), backgroundColor: "#14b8a6" },
-    { label: "Backup Externo (grelha)", data: v((r) => r.c.bkpExt), backgroundColor: "#fbbf24" },
-  ] };
-  const bkpRegChart = { labels, datasets: [
-    { label: "Registos Internos", data: rows.map((r) => r.regInt), backgroundColor: "#0d9488" },
-    { label: "Registos Externos", data: rows.map((r) => r.regExt), backgroundColor: "#f59e0b" },
+  const semBkpChart = { labels, datasets: [
+    { label: "Faltas c/ Backup Interno", data: v((r) => r.c.cInt), backgroundColor: "#14b8a6" },
+    { label: "Faltas c/ Backup Externo", data: v((r) => r.c.cExt), backgroundColor: "#fbbf24" },
+    { label: "Faltas sem Backup", data: v((r) => r.c.sem), backgroundColor: "#ef4444" },
   ] };
   const presChart = { labels, datasets: [{ label: "Presença %", data: rows.map((r) => r.pres), borderColor: "#10b981", backgroundColor: "rgba(16,185,129,0.12)", fill: true, tension: 0.35, spanGaps: false }] };
   const anyData = rows.some((r) => r.has);
@@ -1141,15 +1134,14 @@ function MonthlyComparativeTab({ months, recs, bks, monthHasData, selMonth }) {
       <div className="grid md:grid-cols-2 gap-5 mb-5">
         <Card title="Faltas · Meias Faltas · Abandonos"><ChartCanvas type="bar" data={faltasChart} options={barStackOpts} /></Card>
         <Card title="Taxa de Presença"><ChartCanvas type="line" data={presChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: false, suggestedMin: 80, suggestedMax: 100, ticks: { callback: (val) => val + "%" } } } }} /></Card>
-        <Card title="Backups na grelha · Interno vs Externo"><ChartCanvas type="bar" data={bkpGrelhaChart} options={barGroupOpts} /></Card>
-        <Card title="Registos de Backup (coleção Backups)"><ChartCanvas type="bar" data={bkpRegChart} options={barGroupOpts} /></Card>
+        <Card title="Faltas com Backup Interno · Externo · Sem Backup"><ChartCanvas type="bar" data={semBkpChart} options={barGroupOpts} /></Card>
       </div>
       <Card title="Variação entre meses">
         <div className="overflow-x-auto">
           <table className="w-full text-xs min-w-[820px]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wide text-gray-400 text-center">
-                {["Mês", "Faltas", "Meias", "Abandonos", "Total", "Var. total", "Presença", "Var. presença", "Bkp Int. (grelha)", "Bkp Ext. (grelha)", "Reg. Int.", "Reg. Ext."].map((h, i) => <th key={h} className={`px-3 py-2 border-b border-[var(--border-c)] ${i === 0 ? "text-left" : ""}`}>{h}</th>)}
+                {["Mês", "Faltas", "Meias", "Abandonos", "Total", "Var. total", "Presença", "Var. presença", "Faltas c/ Bkp Int.", "Faltas c/ Bkp Ext.", "Sem backup"].map((h, i) => <th key={h} className={`px-3 py-2 border-b border-[var(--border-c)] ${i === 0 ? "text-left" : ""}`}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -1170,9 +1162,8 @@ function MonthlyComparativeTab({ months, recs, bks, monthHasData, selMonth }) {
                       <td className={td}>{varBadge(dT, pctT, true)}</td>
                       <td className={td}>{r.pres === null ? "—" : `${r.pres}%`}</td>
                       <td className={td}>{varBadge(dP, null, false)}</td>
-                      <td className={td}>{totalBkpInt(r.c)}</td><td className={td}>{r.c.bkpExt}</td>
-                    </> : <td colSpan={9} className="px-3 py-2 border-b border-[var(--border-c)] text-center text-gray-400">Sem dados na grelha</td>}
-                    <td className={td}>{r.regInt}</td><td className={td}>{r.regExt}</td>
+                      <td className={td}>{r.c.cInt}</td><td className={td}>{r.c.cExt}</td><td className={td}>{r.c.sem}</td>
+                    </> : <td colSpan={10} className="px-3 py-2 border-b border-[var(--border-c)] text-center text-gray-400">Sem dados na grelha</td>}
                   </tr>
                 );
               })}
@@ -1528,19 +1519,18 @@ function RankSection({ title, rows, selected, onSelect, showParent, emptyText })
         <>
           <div className="mb-4"><ChartCanvas type="bar" data={chart} options={hBarStackOpts} height={Math.max(140, 60 + top.length * 30)} /></div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[760px]">
+            <table className="w-full text-xs min-w-[820px]">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-gray-400 text-center">
                   <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">#</th>
                   <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">{showParent ? "Loja" : "Cliente"}</th>
                   {showParent && <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">Cliente</th>}
-                  {["Faltas", "Meias", "Abandonos", "Total", "Com cobertura", "Sem cobertura", "% sem cob."].map((h) => <th key={h} className="px-3 py-2 border-b border-[var(--border-c)]">{h}</th>)}
+                  {["Faltas", "Meias", "Abandonos", "Total", "C/ Bkp Int.", "C/ Bkp Ext.", "Sem backup", "% sem bkp"].map((h) => <th key={h} className="px-3 py-2 border-b border-[var(--border-c)]">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => {
                   const t = totalFaltas(r.c);
-                  const cob = r.c.cInt + r.c.cExt;
                   return (
                     <tr key={r.id} onClick={() => onSelect(selected === r.id ? null : r.id)} className={`cursor-pointer hover:bg-gray-50/60 ${selected === r.id ? "bg-gray-50" : ""}`}>
                       <td className="px-3 py-2 border-b border-[var(--border-c)] text-gray-400">{i + 1}</td>
@@ -1548,7 +1538,8 @@ function RankSection({ title, rows, selected, onSelect, showParent, emptyText })
                       {showParent && <td className="px-3 py-2 border-b border-[var(--border-c)] text-gray-500">{r.parent}</td>}
                       <td className={td}>{r.c.falta}</td><td className={td}>{r.c.meia}</td><td className={td}>{r.c.abandono}</td>
                       <td className={td + " font-extrabold"}>{t}</td>
-                      <td className={td} title={`Interno ${r.c.cInt} · Externo ${r.c.cExt}`}>{cob} <span className="text-gray-400">({r.c.cInt}i/{r.c.cExt}e)</span></td>
+                      <td className={td} style={r.c.cInt > 0 ? { color: "#0d9488", fontWeight: 700 } : {}}>{r.c.cInt}</td>
+                      <td className={td} style={r.c.cExt > 0 ? { color: "#d97706", fontWeight: 700 } : {}}>{r.c.cExt}</td>
                       <td className={td} style={r.c.sem > 0 ? { color: "#ef4444", fontWeight: 700 } : {}}>{r.c.sem}</td>
                       <td className={td}>{t > 0 ? `${Math.round((r.c.sem / t) * 100)}%` : "—"}</td>
                     </tr>
@@ -1602,6 +1593,14 @@ function AnalysesView({ stores, employees, clients, getScheduleForMonth, monthOp
     return scoped.filter((r) => set.has(r.mk) && (!fWeek || r.wk === fWeek) && (!fTipo || r.st === fTipo));
   }, [scoped, periodMonths, fWeek, fTipo]);
 
+  // Células de backup da grelha (interno / externo / pool) no mesmo âmbito -> contam como "faltas com backup"
+  const BKP_ST = ["Backup Interno", "Backup Externo", "Pool"];
+  const inPeriodBk = useMemo(() => {
+    if (fTipo) return [];
+    const set = new Set(periodMonths);
+    return data.recs.filter((r) => BKP_ST.includes(r.st) && set.has(r.mk) && (!fWeek || r.wk === fWeek) && (!fCliente || r.clientId === fCliente) && (!fLoja || r.storeId === fLoja) && (!fEmp || r.empId === fEmp));
+  }, [data.recs, periodMonths, fWeek, fTipo, fCliente, fLoja, fEmp]);
+
   const singleMonth = periodMonths.length === 1 ? periodMonths[0] : null;
   const weekOptions = useMemo(() => (singleMonth ? weeksOfMonth(singleMonth) : []), [singleMonth]);
   const storeOptions = useMemo(() => stores.filter((s) => !fCliente || s.clienteId === fCliente).sort((a, b) => a.nome.localeCompare(b.nome)), [stores, fCliente]);
@@ -1651,16 +1650,16 @@ function AnalysesView({ stores, employees, clients, getScheduleForMonth, monthOp
   // -------- 3.2 Clientes / Lojas (rankings separados) --------
   const rankBy = (idFn, nameFn, parentFn) => {
     const map = new Map();
-    inPeriod.forEach((r) => {
+    inPeriod.concat(inPeriodBk).forEach((r) => {
       const id = idFn(r);
       let e = map.get(id);
       if (!e) { e = { id, nome: nameFn(r), parent: parentFn ? parentFn(r) : "", c: emptyCounts(), recs: [] }; map.set(id, e); }
       addRec(e.c, r); e.recs.push(r);
     });
-    return [...map.values()].sort((a, b) => totalFaltas(b.c) - totalFaltas(a.c) || a.nome.localeCompare(b.nome));
+    return [...map.values()].filter((e) => totalFaltas(e.c) > 0).sort((a, b) => totalFaltas(b.c) - totalFaltas(a.c) || a.nome.localeCompare(b.nome));
   };
-  const cliRows = useMemo(() => rankBy((r) => r.clientId || "_none", (r) => r.client), [inPeriod]);
-  const lojaRows = useMemo(() => rankBy((r) => r.storeId || "_none", (r) => r.store, (r) => r.client), [inPeriod]);
+  const cliRows = useMemo(() => rankBy((r) => r.clientId || "_none", (r) => r.client), [inPeriod, inPeriodBk]);
+  const lojaRows = useMemo(() => rankBy((r) => r.storeId || "_none", (r) => r.store, (r) => r.client), [inPeriod, inPeriodBk]);
 
   // -------- 3.3 Alertas (ignora filtro de tipo e de semana no cálculo base) --------
   const alertsAll = useMemo(() => computeAlerts(scoped, periodMonths, loadMonths, data.monthHasData, cfg), [scoped, periodMonths, loadMonths, data.monthHasData, cfg]);
@@ -1831,7 +1830,7 @@ function AnalysesView({ stores, employees, clients, getScheduleForMonth, monthOp
             <>
               <RankSection title="Ranking por Cliente" rows={cliRows} selected={selCli} onSelect={setSelCli} emptyText="Sem faltas para os filtros selecionados." />
               <RankSection title="Ranking por Loja" rows={lojaRows} selected={selLoja} onSelect={setSelLoja} showParent emptyText="Sem faltas para os filtros selecionados." />
-              <p className="text-[11px] text-gray-400 leading-relaxed">Cobertura = mesma loja e mesmo dia (célula da loja pool ou registo de Backup com destino = loja; cada backup cobre uma falta). Backups registados com destino que não corresponda ao nome de uma loja não podem ser ligados a uma falta e ficam como “sem cobertura”.</p>
+              <p className="text-[11px] text-gray-400 leading-relaxed">Cada célula da grelha marcada como Backup Interno (incluindo atribuições da loja pool, contadas na loja coberta) ou Backup Externo conta como uma falta com backup interno/externo. “Sem backup” = faltas sem nenhum backup da mesma loja no mesmo dia, semana ou mês (cada backup cobre uma única falta).</p>
             </>
           )}
 
