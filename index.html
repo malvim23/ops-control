@@ -9,36 +9,44 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
-  // Carrega o Chart.js com CDN de reserva: se cdnjs falhar (bloqueado por
-  // firewall/adblocker), tenta jsdelivr automaticamente antes de desistir.
+  // Carrega o Chart.js com CDNs de reserva. A referência ao <script> atual é guardada UMA vez
+  // (document.currentScript é null dentro de callbacks assíncronos, o que fazia o fallback rebentar
+  // e deixava os gráficos sempre "indisponíveis" quando o 1.º CDN falhava).
   window.__chartLoadFailed = false;
-  (function loadChart(urls) {
-    if (!urls.length) { window.__chartLoadFailed = true; return; }
-    const s = document.createElement("script");
-    s.src = urls[0];
-    s.onerror = function () { loadChart(urls.slice(1)); };
-    document.currentScript.insertAdjacentElement("afterend", s);
-  })([
-    "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js",
-    "https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js",
-    "https://unpkg.com/chart.js@4.4.4/dist/chart.umd.min.js",
-  ]);
+  (function () {
+    var anchor = document.currentScript;
+    function loadChart(urls) {
+      if (!urls.length) { window.__chartLoadFailed = true; return; }
+      var s = document.createElement("script");
+      s.src = urls[0];
+      s.onerror = function () { s.remove(); loadChart(urls.slice(1)); };
+      anchor.parentNode.insertBefore(s, anchor.nextSibling);
+    }
+    loadChart([
+      "https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js",
+      "https://unpkg.com/chart.js@4.4.4/dist/chart.umd.min.js"
+    ]);
+  })();
 </script>
 <script>
-  // Carrega o html2canvas (usado para exportar a grelha em PNG), com CDN de
-  // reserva caso a principal falhe (firewall/adblocker).
+  // Carrega o html2canvas (exportação PNG da grelha) com CDNs de reserva (mesma correção do Chart.js).
   window.__html2canvasFailed = false;
-  (function loadHtml2Canvas(urls) {
-    if (!urls.length) { window.__html2canvasFailed = true; return; }
-    const s = document.createElement("script");
-    s.src = urls[0];
-    s.onerror = function () { loadHtml2Canvas(urls.slice(1)); };
-    document.currentScript.insertAdjacentElement("afterend", s);
-  })([
-    "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
-    "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
-    "https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js",
-  ]);
+  (function () {
+    var anchor = document.currentScript;
+    function loadH2C(urls) {
+      if (!urls.length) { window.__html2canvasFailed = true; return; }
+      var s = document.createElement("script");
+      s.src = urls[0];
+      s.onerror = function () { s.remove(); loadH2C(urls.slice(1)); };
+      anchor.parentNode.insertBefore(s, anchor.nextSibling);
+    }
+    loadH2C([
+      "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+      "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+      "https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"
+    ]);
+  })();
 </script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -236,6 +244,7 @@ const ICONS = {
   moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>,
   plusCircle: <><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></>,
   minusCircle: <><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></>,
+  analytics: <><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></>,
 };
 
 /* ---------------------------------------------------------------------- */
@@ -366,6 +375,7 @@ function Sidebar({ view, setView, collapsed, setCollapsed, user, onLogout }) {
     { id: "employees", label: "Colaboradores", icon: ICONS.users },
     { id: "stores",    label: "Lojas", icon: ICONS.store },
     { id: "backups",   label: "Backups", icon: ICONS.backup },
+    { id: "analyses",  label: "Análises", icon: ICONS.analytics },
     { id: "history",   label: "Histórico", icon: ICONS.history },
   ];
   return (
@@ -436,6 +446,7 @@ function ChartCanvas({ type, data, options, height = 240 }) {
   const chartRef = useRef(null);
   const [ready, setReady] = useState(typeof window.Chart !== "undefined");
   const [failed, setFailed] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
 
   // Se o Chart.js ainda não carregou (script externo lento/bloqueado),
   // aguarda em vez de rebentar com "Chart is not defined".
@@ -462,15 +473,17 @@ function ChartCanvas({ type, data, options, height = 240 }) {
       chartRef.current = new Chart(canvasRef.current.getContext("2d"), { type, data, options });
     } catch (e) {
       console.error("Erro ao desenhar gráfico:", e);
+      setErrMsg(String((e && e.message) || e));
       setFailed(true);
     }
     return () => { if (chartRef.current) chartRef.current.destroy(); };
   }, [ready, JSON.stringify(data), type]);
+  useEffect(() => { if (failed && errMsg) { setFailed(false); setErrMsg(""); } }, [JSON.stringify(data)]);
 
   if (failed) {
     return (
       <div style={{ height, display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af", fontSize: 12, textAlign: "center", padding: 12 }}>
-        Gráfico indisponível (falha ao carregar Chart.js — verifica a ligação à internet)
+        {errMsg ? `Erro ao desenhar o gráfico: ${errMsg}` : "Gráfico indisponível (falha ao carregar Chart.js — verifica a ligação à internet ou bloqueadores de scripts)"}
       </div>
     );
   }
@@ -478,238 +491,1353 @@ function ChartCanvas({ type, data, options, height = 240 }) {
 }
 
 /* ---------------------------------------------------------------------- */
+/* CAMADA ANALÍTICA PARTILHADA (Dashboard + Análises)                     */
+/* Lê apenas dados já existentes: schedule/{YYYY-MM}.cells (grelha),      */
+/* stores, employees, clients e backups (intervalo de datas).             */
+/* Relações reais: colaborador.lojaId -> loja.clienteId -> cliente.       */
+/* ---------------------------------------------------------------------- */
+const ABS_TYPES = ["Falta", "Meia Falta", "Abandono"];
+const TYPE_COLORS = { "Falta": "#ef4444", "Meia Falta": "#f59e0b", "Abandono": "#7f1d1d" };
+const COB_LABEL = { int: "Backup interno", ext: "Backup externo", sem: "Sem backup" };
+const COB_COLOR = { int: "#0d9488", ext: "#f59e0b", sem: "#ef4444" };
+
+const normTxt = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+const shiftMonth = (mk, delta) => { const [y, m] = mk.split("-").map(Number); const d = new Date(y, m - 1 + delta, 1); return monthKey(d.getFullYear(), d.getMonth()); };
+const monthWindow = (endMk, n) => Array.from({ length: n }, (_, i) => shiftMonth(endMk, i - (n - 1)));
+const monthLabelOf = (mk) => { const [y, m] = mk.split("-").map(Number); return `${MESES[m - 1]} ${y}`; };
+const monthShort = (mk) => { const [y, m] = mk.split("-").map(Number); return `${MESES[m - 1].slice(0, 3)}/${String(y).slice(2)}`; };
+const isoDate = (y, m0, d) => `${y}-${pad2(m0 + 1)}-${pad2(d)}`;
+const dateKey = (dt) => isoDate(dt.getFullYear(), dt.getMonth(), dt.getDate());
+const parseISO = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const fmtDM = (dt) => `${pad2(dt.getDate())}/${pad2(dt.getMonth() + 1)}`;
+const fmtDMY = (s) => { const [y, m, d] = s.split("-"); return `${d}/${m}/${y}`; };
+const weekStartOf = (y, m0, d) => { const dt = new Date(y, m0, d); dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); return dt; };
+const addDays = (dt, n) => { const r = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + n); return r; };
+// Semana = segunda a domingo. wk = data (ISO) da segunda-feira.
+const weekRangeLabel = (wk) => { const s = parseISO(wk); return `${fmtDM(s)}–${fmtDM(addDays(s, 6))}`; };
+
+// Semanas de um mês (recortadas ao mês): [{wk, idx, from, to, label}]
+function weeksOfMonth(mk) {
+  const [y, mo] = mk.split("-").map(Number);
+  const m0 = mo - 1;
+  const nd = daysInMonth(y, m0);
+  const list = [];
+  for (let d = 1; d <= nd; d++) {
+    const k = dateKey(weekStartOf(y, m0, d));
+    let w = list[list.length - 1];
+    if (!w || w.wk !== k) { w = { wk: k, idx: list.length + 1, from: d, to: d }; list.push(w); }
+    w.to = d;
+  }
+  list.forEach((w) => { w.label = `S${w.idx} · ${pad2(w.from)}–${pad2(w.to)}/${pad2(mo)}`; });
+  return list;
+}
+
+// Contadores por estado (cada estado é contado individualmente)
+const emptyCounts = () => ({ ok: 0, falta: 0, meia: 0, abandono: 0, baixa: 0, formacao: 0, bkpInt: 0, bkpExt: 0, folga: 0, bloq: 0, pool: 0, cInt: 0, cExt: 0, sem: 0 });
+function addRec(c, r) {
+  switch (r.st) {
+    case "OK": c.ok++; break;
+    case "Falta": c.falta++; break;
+    case "Meia Falta": c.meia++; break;
+    case "Abandono": c.abandono++; break;
+    case "Baixa": c.baixa++; break;
+    case "Formação": c.formacao++; break;
+    case "Backup Interno": c.bkpInt++; break;
+    case "Backup Externo": c.bkpExt++; break;
+    case "Folga": c.folga++; break;
+    case "Bloqueado": c.bloq++; break;
+    case "Pool": c.pool++; break;
+    default: break;
+  }
+  if (r.cob === "int") c.cInt++; else if (r.cob === "ext") c.cExt++; else if (r.cob === "sem") c.sem++;
+}
+const totalFaltas = (c) => c.falta + c.meia + c.abandono;
+const totalBkpInt = (c) => c.bkpInt + c.pool; // status "Backup Interno" + atribuições da loja pool
+const outrosEstados = (c) => c.formacao + c.folga + c.bloq + c.bkpInt + c.bkpExt + c.pool;
+const presencaPct = (c) => {
+  const base = c.ok + c.falta + c.meia + c.abandono + c.bkpInt + c.bkpExt + c.pool;
+  return base > 0 ? Math.round((c.ok / base) * 1000) / 10 : null;
+};
+const countRecs = (recs) => { const c = emptyCounts(); recs.forEach((r) => addRec(c, r)); return c; };
+
+// Constrói um registo por célula preenchida da grelha.
+// Células de lojas "pool" guardam o ID da loja coberta (não um estado) -> st = "Pool".
+function buildRecords(schedules, employees, stores, clients) {
+  const empById = new Map(employees.map((e) => [e.id, e]));
+  const storeById = new Map(stores.map((s) => [s.id, s]));
+  const clientById = new Map(clients.map((c) => [c.id, c]));
+  const out = [];
+  Object.keys(schedules).forEach((mk) => {
+    const cells = schedules[mk] || {};
+    const [y, mo] = mk.split("-").map(Number);
+    const m0 = mo - 1;
+    const nd = daysInMonth(y, m0);
+    Object.keys(cells).forEach((key) => {
+      const val = cells[key];
+      if (!val) return;
+      const i = key.lastIndexOf("_");
+      if (i < 0) return;
+      const empId = key.slice(0, i);
+      const day = Number(key.slice(i + 1));
+      if (!day || day > nd) return;
+      let st = null, target = "";
+      if (STATUS_VALUE_SET.has(val)) st = val;
+      else if (storeById.has(val)) { st = "Pool"; target = val; }
+      if (!st) return;
+      const emp = empById.get(empId);
+      const store = emp ? storeById.get(emp.lojaId) : null;
+      const client = store ? clientById.get(store.clienteId) : null;
+      const dt = new Date(y, m0, day);
+      out.push({
+        mk, day, date: isoDate(y, m0, day), dow: dt.getDay(), wk: dateKey(weekStartOf(y, m0, day)),
+        empId, emp: emp ? emp.nome : "Colaborador removido",
+        storeId: store ? store.id : "", store: store ? store.nome : "Sem loja",
+        clientId: client ? client.id : "", client: client ? client.nome : "Sem cliente", clientCor: client ? client.cor : "#9ca3af",
+        st, target, cob: "",
+      });
+    });
+  });
+  return out;
+}
+const STATUS_VALUE_SET = new Set(STATUS_OPTIONS.map((s) => s.value).filter(Boolean));
+
+// Liga registos da coleção "backups" (texto livre em destino) a lojas pelo nome (igualdade normalizada
+// ou nome completo da loja contido no destino). O que não corresponder fica sem loja (_sid vazio).
+function matchBackups(backups, stores) {
+  const named = stores.map((s) => ({ id: s.id, n: normTxt(s.nome), cid: s.clienteId || "" })).filter((s) => s.n);
+  return backups.map((b) => {
+    const n = normTxt(b.destino);
+    let hit = null;
+    if (n) {
+      hit = named.find((s) => s.n === n) ||
+        named.filter((s) => s.n.length >= 3 && n.includes(s.n)).sort((a, b2) => b2.n.length - a.n.length)[0] || null;
+    }
+    return { ...b, _sid: hit ? hit.id : "", _cid: hit ? hit.cid : "" };
+  });
+}
+
+// Cobertura de cada ausência (Falta / Meia Falta / Abandono) -> r.cob = "int" | "ext" | "sem".
+// Ligação real = mesma loja + mesmo dia. Fontes de cobertura:
+//  - Interna: células da loja pool com o ID da loja em falta (grelha) OU registo de backup Interno com destino = loja.
+//    (usa-se o MÁXIMO das duas fontes por loja/dia para não contar o mesmo backup duas vezes)
+//  - Externa: registos de backup Externo com destino = loja, nesse dia.
+// Cada unidade de cobertura só cobre UMA ausência (sem duplicações). Estados "Backup Interno/Externo" da grelha
+// NÃO são assumidos como cobertura de uma falta (não indicam qual a loja/falta coberta).
+function annotateCoverage(recs, bks) {
+  const pool = {}, ib = {}, eb = {};
+  recs.forEach((r) => { if (r.st === "Pool" && r.target) { const k = r.target + "|" + r.date; pool[k] = (pool[k] || 0) + 1; } });
+  bks.forEach((b) => {
+    if (!b._sid || !b.data) return;
+    const k = b._sid + "|" + b.data;
+    if (b.tipo === "Externo") eb[k] = (eb[k] || 0) + 1; else ib[k] = (ib[k] || 0) + 1;
+  });
+  const capInt = {}, capExt = {};
+  Object.keys(pool).concat(Object.keys(ib)).forEach((k) => { capInt[k] = Math.max(pool[k] || 0, ib[k] || 0); });
+  Object.keys(eb).forEach((k) => { capExt[k] = eb[k]; });
+  const order = { "Falta": 0, "Abandono": 1, "Meia Falta": 2 };
+  recs.filter((r) => ABS_TYPES.includes(r.st)).sort((a, b) => order[a.st] - order[b.st]).forEach((r) => {
+    const k = r.storeId + "|" + r.date;
+    if ((capInt[k] || 0) > 0) { capInt[k]--; r.cob = "int"; }
+    else if ((capExt[k] || 0) > 0) { capExt[k]--; r.cob = "ext"; }
+    else r.cob = "sem";
+  });
+}
+
+// Hook de dados: 1 leitura (em cache) por mês da grelha + 1 query por intervalo de datas em "backups".
+function useOpsData({ months, stores, employees, clients, getScheduleForMonth, enabled }) {
+  const monthsKey = months.join(",");
+  const [raw, setRaw] = useState({ schedules: {}, backups: [] });
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    setStatus("loading");
+    setError("");
+    const list = monthsKey.split(",").filter(Boolean);
+    const from = `${list[0]}-01`;
+    const to = `${shiftMonth(list[list.length - 1], 1)}-01`;
+    Promise.all([
+      Promise.all(list.map((mk) => getScheduleForMonth(mk))),
+      col("backups").where("data", ">=", from).where("data", "<", to).get(),
+    ]).then(([scheds, snap]) => {
+      if (!alive) return;
+      const schedules = {};
+      list.forEach((mk, i) => { schedules[mk] = scheds[i] || {}; });
+      setRaw({ schedules, backups: snap.docs.map((d) => ({ id: d.id, ...d.data() })) });
+      setStatus("ready");
+    }).catch((err) => {
+      if (!alive) return;
+      console.error("Erro a carregar dados analíticos:", err);
+      setError(String((err && err.message) || err));
+      setStatus("error");
+    });
+    return () => { alive = false; };
+  }, [monthsKey, tick, enabled, getScheduleForMonth]);
+
+  const built = useMemo(() => {
+    const recs = buildRecords(raw.schedules, employees, stores, clients);
+    const bks = matchBackups(raw.backups, stores);
+    annotateCoverage(recs, bks);
+    const monthHasData = {};
+    Object.keys(raw.schedules).forEach((mk) => { monthHasData[mk] = Object.keys(raw.schedules[mk] || {}).length > 0; });
+    return { recs, bks, monthHasData };
+  }, [raw, employees, stores, clients]);
+
+  const reload = useCallback(() => setTick((t) => t + 1), []);
+  return { status: enabled ? status : "loading", error, reload, recs: built.recs, bks: built.bks, monthHasData: built.monthHasData };
+}
+
+// Agrupa por cliente e, dentro de cada cliente, por loja
+function groupByClientStore(recs) {
+  const map = new Map();
+  recs.forEach((r) => {
+    const ck = r.clientId || "_none";
+    let c = map.get(ck);
+    if (!c) { c = { id: ck, nome: r.client, cor: r.clientCor, tot: emptyCounts(), stores: new Map() }; map.set(ck, c); }
+    addRec(c.tot, r);
+    const sk = r.storeId || "_none";
+    let s = c.stores.get(sk);
+    if (!s) { s = { id: sk, nome: r.store, tot: emptyCounts() }; c.stores.set(sk, s); }
+    addRec(s.tot, r);
+  });
+  const cmp = (a, b) => totalFaltas(b.tot) - totalFaltas(a.tot) || a.nome.localeCompare(b.nome);
+  return [...map.values()].map((c) => ({ ...c, stores: [...c.stores.values()].sort(cmp) })).sort(cmp);
+}
+
+function weekStats(mk, recs) {
+  const map = new Map(weeksOfMonth(mk).map((w) => [w.wk, { ...w, c: emptyCounts() }]));
+  recs.forEach((r) => { if (r.mk !== mk) return; const w = map.get(r.wk); if (w) addRec(w.c, r); });
+  return [...map.values()];
+}
+
+/* ---------------------------------------------------------------------- */
+/* Componentes visuais partilhados                                        */
+/* ---------------------------------------------------------------------- */
+const filterSelCls = "border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm font-semibold bg-white max-w-full";
+const barStackOpts = { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } }, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } } };
+const barGroupOpts = { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } }, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } } };
+const hBarStackOpts = { responsive: true, maintainAspectRatio: false, indexAxis: "y", scales: { x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }, y: { stacked: true, grid: { display: false } } }, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } } };
+
+function Pill({ color, children }) {
+  return <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold whitespace-nowrap" style={{ background: color + "24", color }}>{children}</span>;
+}
+
+function MiniStat({ label, value, sub, color }) {
+  return (
+    <div className="bg-white rounded-2xl border border-[var(--border-c)] p-4 min-w-0">
+      <div className="text-[10px] font-bold tracking-wider text-gray-400 uppercase truncate" title={label}>{label}</div>
+      <div className="text-2xl font-extrabold leading-none mt-2" style={color ? { color } : {}}>{value}</div>
+      {sub && <div className="text-[11px] text-gray-400 mt-1 truncate" title={sub}>{sub}</div>}
+    </div>
+  );
+}
+
+function Card({ title, right, children, className = "" }) {
+  return (
+    <div className={`bg-white rounded-2xl border border-[var(--border-c)] p-5 min-w-0 ${className}`}>
+      {(title || right) && (
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <h3 className="text-sm font-bold">{title}</h3>
+          {right}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function StateBox({ status, error, onRetry, empty, emptyText }) {
+  if (status === "loading") return <div className="bg-white rounded-2xl border border-[var(--border-c)] p-10 text-center text-sm text-gray-400">A carregar dados…</div>;
+  if (status === "error") {
+    return (
+      <div className="bg-white rounded-2xl border border-[var(--border-c)] p-8 text-center">
+        <div className="text-sm font-bold text-red-500 mb-1">Não foi possível carregar os dados</div>
+        <div className="text-xs text-gray-400 mb-3 break-words">{error}</div>
+        <button onClick={onRetry} className="px-4 py-2 rounded-lg text-sm font-semibold text-white" style={{ background: "var(--accent)" }}>Tentar novamente</button>
+      </div>
+    );
+  }
+  if (empty) return <div className="bg-white rounded-2xl border border-[var(--border-c)] p-8 text-center text-sm text-gray-400">{emptyText}</div>;
+  return null;
+}
+
+// Tabela de ocorrências (detalhe que compõe um total)
+function OccurrenceTable({ items, maxH = 320 }) {
+  const rows = useMemo(() => [...items].sort((a, b) => b.date.localeCompare(a.date) || a.emp.localeCompare(b.emp)), [items]);
+  if (!rows.length) return <div className="text-xs text-gray-400 p-3">Sem ocorrências.</div>;
+  return (
+    <div className="overflow-auto rounded-lg border border-[var(--border-c)]" style={{ maxHeight: maxH }}>
+      <table className="w-full text-xs min-w-[720px]">
+        <thead>
+          <tr className="text-left text-[10px] uppercase tracking-wide text-gray-400">
+            {["Data", "Dia", "Semana", "Motorista", "Cliente", "Loja", "Tipo", "Cobertura"].map((h) => <th key={h} className="px-3 py-2 border-b border-[var(--border-c)] bg-white sticky top-0 whitespace-nowrap">{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.empId + r.date + r.st + i} className="hover:bg-gray-50/60">
+              <td className="px-3 py-1.5 border-b border-[var(--border-c)] whitespace-nowrap font-semibold">{fmtDMY(r.date)}</td>
+              <td className="px-3 py-1.5 border-b border-[var(--border-c)]">{DIAS_SEMANA[r.dow]}</td>
+              <td className="px-3 py-1.5 border-b border-[var(--border-c)] whitespace-nowrap">{weekRangeLabel(r.wk)}</td>
+              <td className="px-3 py-1.5 border-b border-[var(--border-c)] font-semibold">{r.emp}</td>
+              <td className="px-3 py-1.5 border-b border-[var(--border-c)]">{r.client}</td>
+              <td className="px-3 py-1.5 border-b border-[var(--border-c)]">{r.store}</td>
+              <td className="px-3 py-1.5 border-b border-[var(--border-c)]"><Pill color={TYPE_COLORS[r.st] || "#6b7280"}>{r.st}</Pill></td>
+              <td className="px-3 py-1.5 border-b border-[var(--border-c)]">{r.cob ? <Pill color={COB_COLOR[r.cob]}>{COB_LABEL[r.cob]}</Pill> : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Painel "Faltas por Cliente" com detalhe por loja e todos os estados
+function ClientFaltasTable({ groups }) {
+  const [open, setOpen] = useState({});
+  const maxF = Math.max(1, ...groups.map((g) => totalFaltas(g.tot)));
+  const totals = useMemo(() => {
+    const t = emptyCounts();
+    groups.forEach((g) => Object.keys(t).forEach((k) => { t[k] += g.tot[k]; }));
+    return t;
+  }, [groups]);
+  const STATE_ORDER = [["OK", "ok"], ["Falta", "falta"], ["Meia Falta", "meia"], ["Formação", "formacao"], ["Backup Interno", "bkpInt"], ["Backup Externo", "bkpExt"], ["Folga", "folga"], ["Baixa", "baixa"], ["Abandono", "abandono"], ["Bloqueado", "bloq"]];
+  const num = (v, color) => <td className="px-3 py-2 border-b border-[var(--border-c)] text-center tabular-nums" style={v > 0 && color ? { color, fontWeight: 700 } : { color: v > 0 ? undefined : "#9ca3af" }}>{v}</td>;
+  const row = (nome, c, opts) => (
+    <>
+      <td className="px-3 py-2 border-b border-[var(--border-c)]" style={{ paddingLeft: opts.indent ? 34 : 12 }}>
+        <div className="flex items-center gap-2 min-w-0">
+          {opts.toggle && <span className="text-gray-400 shrink-0" style={{ display: "inline-flex", transform: opts.isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}><Icon path={ICONS.chevronDown} size={14} /></span>}
+          {opts.cor && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: opts.cor }}></span>}
+          <span className={`truncate ${opts.indent ? "" : "font-bold"}`} title={nome}>{nome}</span>
+        </div>
+      </td>
+      <td className="px-3 py-2 border-b border-[var(--border-c)]" style={{ minWidth: 110 }}>
+        <div className="flex items-center gap-2">
+          <span className="font-extrabold tabular-nums w-6 text-right">{totalFaltas(c)}</span>
+          <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${(totalFaltas(c) / maxF) * 100}%`, background: "#ef4444" }}></div></div>
+        </div>
+      </td>
+      {num(c.falta, "#ef4444")}{num(c.meia, "#f59e0b")}{num(c.abandono, "#b91c1c")}
+      {num(c.cInt, "#0d9488")}{num(c.cExt, "#d97706")}{num(c.sem, "#ef4444")}
+      {num(c.baixa, "#8b5cf6")}{num(outrosEstados(c))}
+    </>
+  );
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs min-w-[860px]">
+        <thead>
+          <tr className="text-[10px] uppercase tracking-wide text-gray-400 text-center">
+            <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">Cliente / Loja</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">Total faltas</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]">Faltas</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]">Meias</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]">Abandonos</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]">C/ Bkp Int.</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]">C/ Bkp Ext.</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]">Sem backup</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]">Baixas</th>
+            <th className="px-3 py-2 border-b border-[var(--border-c)]" title="Formação, Folga, Bloqueado, Backup Int./Ext. (grelha) e atribuições pool">Outros</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((g) => {
+            const isOpen = !!open[g.id];
+            return (
+              <React.Fragment key={g.id}>
+                <tr className="cursor-pointer hover:bg-gray-50/60" onClick={() => setOpen((p) => ({ ...p, [g.id]: !p[g.id] }))}>
+                  {row(g.nome, g.tot, { toggle: true, isOpen, cor: g.cor })}
+                </tr>
+                {isOpen && g.stores.map((s) => <tr key={g.id + s.id} className="bg-gray-50">{row(s.nome, s.tot, { indent: true })}</tr>)}
+                {isOpen && (
+                  <tr className="bg-gray-50">
+                    <td colSpan={10} className="px-3 py-2 border-b border-[var(--border-c)]" style={{ paddingLeft: 34 }}>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500">
+                        {STATE_ORDER.map(([label, k]) => (
+                          <span key={k} className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: statusMeta(label).dot }}></span>{label}: <b className="text-[var(--text-primary)]">{g.tot[k]}</b></span>
+                        ))}
+                        {g.tot.pool > 0 && <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: "#3b82f6" }}></span>Atribuições pool → loja: <b className="text-[var(--text-primary)]">{g.tot.pool}</b></span>}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+          <tr className="font-extrabold">
+            {row("Total", totals, {})}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 /* DASHBOARD                                                              */
 /* ---------------------------------------------------------------------- */
-function DashboardView({ stores, employees, getScheduleForMonth, monthOptions }) {
+function DashboardView({ stores, employees, clients, getScheduleForMonth, monthOptions, refsReady }) {
   const [tab, setTab] = useState("geral");
   const now = new Date();
   const [selMonth, setSelMonth] = useState(monthKey(now.getFullYear(), now.getMonth()));
-  const [schedule, setSchedule] = useState({});
-  const [backups, setBackups] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [fCliente, setFCliente] = useState("");
+  const [fLoja, setFLoja] = useState("");
 
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    getScheduleForMonth(selMonth).then((s) => { if (alive) { setSchedule(s); setLoading(false); } });
-    const [y, m] = selMonth.split("-").map(Number);
-    const from = `${selMonth}-01`;
-    const to = `${monthKey(m === 12 ? y + 1 : y, m === 12 ? 0 : m)}-01`;
-    const unsub = col("backups").where("data", ">=", from).where("data", "<", to).onSnapshot((snap) => {
-      if (!alive) return;
-      setBackups(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  // Uma única janela de 6 meses (terminada no mês selecionado) alimenta as 3 abas -> mesma fonte, sem contagens divergentes
+  const months = useMemo(() => monthWindow(selMonth, 6), [selMonth]);
+  const data = useOpsData({ months, stores, employees, clients, getScheduleForMonth, enabled: refsReady });
+  const loading = data.status === "loading";
+
+  const storeOptions = useMemo(() => stores.filter((s) => !fCliente || s.clienteId === fCliente).sort((a, b) => a.nome.localeCompare(b.nome)), [stores, fCliente]);
+  const recs = useMemo(() => data.recs.filter((r) => (!fCliente || r.clientId === fCliente) && (!fLoja || r.storeId === fLoja)), [data.recs, fCliente, fLoja]);
+  const bks = useMemo(() => data.bks.filter((b) => (!fCliente || b._cid === fCliente) && (!fLoja || b._sid === fLoja)), [data.bks, fCliente, fLoja]);
+
+  const monthRecs = useMemo(() => recs.filter((r) => r.mk === selMonth), [recs, selMonth]);
+  const monthBks = useMemo(() => bks.filter((b) => (b.data || "").startsWith(selMonth)), [bks, selMonth]);
+  const tot = useMemo(() => countRecs(monthRecs), [monthRecs]);
+  const groups = useMemo(() => groupByClientStore(monthRecs), [monthRecs]);
+  const weeks = useMemo(() => weekStats(selMonth, monthRecs), [selMonth, monthRecs]);
+  const [y, m] = selMonth.split("-").map(Number);
+  const monthLabel = `${MESES[m - 1]} ${y}`;
+  const monthEmpty = !loading && data.status === "ready" && !data.monthHasData[selMonth];
+
+  const extra = useMemo(() => {
+    const porLoja = {}, porOp = {};
+    monthRecs.forEach((r) => {
+      if (!ABS_TYPES.includes(r.st)) return;
+      porLoja[r.store] = (porLoja[r.store] || 0) + 1;
+      porOp[r.emp] = (porOp[r.emp] || 0) + 1;
     });
-    return () => { alive = false; unsub(); };
-  }, [selMonth]);
+    const l = Object.entries(porLoja).sort((a, b) => b[1] - a[1]);
+    const o = Object.entries(porOp).sort((a, b) => b[1] - a[1]);
+    return { lojaMax: l[0] || ["—", 0], lojaMin: l[l.length - 1] || ["—", 0], opMax: o[0] || ["—", 0] };
+  }, [monthRecs]);
 
-  const activeEmployees = useMemo(() => employees.filter(e => e.estado !== "Desligado"), [employees]);
+  const custoBackups = monthBks.reduce((s, b) => s + (Number(b.custo) || 0), 0);
+  const regInt = monthBks.filter((b) => b.tipo !== "Externo").length;
+  const regExt = monthBks.filter((b) => b.tipo === "Externo").length;
 
-  const stats = useMemo(() => {
-    let ok = 0, falta = 0, meiaFalta = 0, backupInt = 0, backupExt = 0, total = 0, folga = 0, formacao = 0, baixa = 0;
-    const porLoja = {}; const porOperador = {};
-    Object.entries(schedule).forEach(([key, val]) => {
-      if (!val) return;
-      const empId = key.split("_")[0];
-      const emp = employees.find(e => e.id === empId);
-      const storeName = emp ? (stores.find(s => s.id === emp.lojaId)?.nome || "—") : "—";
-      total++;
-      if (val === "OK") ok++;
-      else if (val === "Falta") { falta++; porLoja[storeName] = (porLoja[storeName]||0)+1; porOperador[emp?.nome||"—"]=(porOperador[emp?.nome||"—"]||0)+1; }
-      else if (val === "Meia Falta") { meiaFalta++; porLoja[storeName] = (porLoja[storeName]||0)+1; porOperador[emp?.nome||"—"]=(porOperador[emp?.nome||"—"]||0)+1; }
-      else if (val === "Backup Interno") backupInt++;
-      else if (val === "Backup Externo") backupExt++;
-      else if (val === "Folga") folga++;
-      else if (val === "Formação") formacao++;
-      else if (val === "Baixa") baixa++;
-    });
-    const presenceBase = ok + falta + meiaFalta + backupInt + backupExt;
-    const presenca = presenceBase > 0 ? Math.round((ok / presenceBase) * 1000) / 10 : 0;
-    const lojaEntries = Object.entries(porLoja).sort((a,b)=>b[1]-a[1]);
-    const opEntries = Object.entries(porOperador).sort((a,b)=>b[1]-a[1]);
-    const lojaMax = lojaEntries[0] || [stores[0]?.nome || "—", 0];
-    const lojaMin = [...lojaEntries].sort((a,b)=>a[1]-b[1])[0] || lojaMax;
-    const opMax = opEntries[0] || ["—", 0];
-    const custoBackups = backups.reduce((s, b) => s + (Number(b.custo) || 0), 0);
-    return { ok, falta, meiaFalta, backupInt, backupExt, folga, formacao, baixa, presenca, lojaMax, lojaMin, opMax, custoBackups, porLoja };
-  }, [schedule, employees, stores, backups]);
+  const clienteChart = useMemo(() => ({
+    labels: groups.map((g) => g.nome),
+    datasets: [
+      { label: "Falta", data: groups.map((g) => g.tot.falta), backgroundColor: "#ef4444" },
+      { label: "Meia Falta", data: groups.map((g) => g.tot.meia), backgroundColor: "#f59e0b" },
+      { label: "Abandono", data: groups.map((g) => g.tot.abandono), backgroundColor: "#7f1d1d" },
+    ],
+  }), [groups]);
+
+  const coberturaChart = useMemo(() => ({
+    labels: ["Backup interno", "Backup externo", "Sem backup"],
+    datasets: [{ data: [tot.cInt, tot.cExt, tot.sem], backgroundColor: ["#0d9488", "#f59e0b", "#ef4444"], borderWidth: 0 }],
+  }), [tot]);
 
   const faltasPorLojaChart = useMemo(() => {
-    const names = stores.map(s => s.nome);
-    const countFor = (statusVal) => stores.map(s => {
-      let c = 0;
-      Object.entries(schedule).forEach(([key, val]) => {
-        if (val !== statusVal) return;
-        const empId = key.split("_")[0];
-        const emp = employees.find(e => e.id === empId);
-        if (emp && emp.lojaId === s.id) c++;
-      });
-      return c;
+    const map = new Map();
+    monthRecs.forEach((r) => {
+      let s = map.get(r.store); if (!s) { s = emptyCounts(); map.set(r.store, s); }
+      addRec(s, r);
     });
+    const rows = [...map.entries()].filter(([, c]) => totalFaltas(c) + c.baixa + c.bkpInt + c.bkpExt > 0).sort((a, b) => totalFaltas(b[1]) - totalFaltas(a[1]));
     return {
-      labels: names,
+      labels: rows.map(([n]) => n),
       datasets: [
-        { label: "Falta", data: countFor("Falta"), backgroundColor: "#ef4444" },
-        { label: "Meia Falta", data: countFor("Meia Falta"), backgroundColor: "#f59e0b" },
-        { label: "Backup Int.", data: countFor("Backup Interno"), backgroundColor: "#14b8a6" },
-        { label: "Backup Ext.", data: countFor("Backup Externo"), backgroundColor: "#fbbf24" },
-        { label: "Baixa", data: countFor("Baixa"), backgroundColor: "#a855f7" },
+        { label: "Falta", data: rows.map(([, c]) => c.falta), backgroundColor: "#ef4444" },
+        { label: "Meia Falta", data: rows.map(([, c]) => c.meia), backgroundColor: "#f59e0b" },
+        { label: "Abandono", data: rows.map(([, c]) => c.abandono), backgroundColor: "#7f1d1d" },
+        { label: "Backup Int.", data: rows.map(([, c]) => c.bkpInt), backgroundColor: "#14b8a6" },
+        { label: "Backup Ext.", data: rows.map(([, c]) => c.bkpExt), backgroundColor: "#fbbf24" },
+        { label: "Baixa", data: rows.map(([, c]) => c.baixa), backgroundColor: "#a855f7" },
       ],
     };
-  }, [schedule, stores, employees]);
+  }, [monthRecs]);
 
   const distribChart = useMemo(() => ({
-    labels: ["OK","Falta","Meia Falta","Formação","Backup Int.","Backup Ext.","Folga","Baixa"],
+    labels: ["OK", "Falta", "Meia Falta", "Formação", "Backup Int.", "Backup Ext.", "Folga", "Baixa", "Abandono", "Bloqueado"],
     datasets: [{
-      data: [stats.ok, stats.falta, stats.meiaFalta, stats.formacao, stats.backupInt, stats.backupExt, stats.folga, stats.baixa],
-      backgroundColor: ["#22c55e","#ef4444","#f97316","#3b82f6","#0d9488","#f59e0b","#9ca3af","#a855f7"],
+      data: [tot.ok, tot.falta, tot.meia, tot.formacao, tot.bkpInt, tot.bkpExt, tot.folga, tot.baixa, tot.abandono, tot.bloq],
+      backgroundColor: ["#22c55e", "#ef4444", "#f97316", "#3b82f6", "#0d9488", "#f59e0b", "#9ca3af", "#a855f7", "#7f1d1d", "#d1d5db"],
       borderWidth: 0,
     }],
-  }), [stats]);
+  }), [tot]);
 
-  const [y, m] = selMonth.split("-").map(Number);
-  const nDays = daysInMonth(y, m - 1);
-  const weeklyChart = useMemo(() => {
-    const weeks = {};
-    for (let d = 1; d <= nDays; d++) {
-      const wk = Math.ceil(d / 7);
-      let f = 0;
-      employees.forEach(e => { if (schedule[cellKey(e.id, d)] === "Falta" || schedule[cellKey(e.id, d)] === "Meia Falta") f++; });
-      weeks[wk] = (weeks[wk] || 0) + f;
-    }
-    return {
-      labels: Object.keys(weeks).map(w => `Semana ${w}`),
-      datasets: [{ label: "Faltas", data: Object.values(weeks), borderColor: "#4f6ef7", backgroundColor: "rgba(79,110,247,0.12)", fill: true, tension: 0.35, pointRadius: 3 }],
-    };
-  }, [schedule, employees, nDays]);
+  const weeklyStackChart = useMemo(() => ({
+    labels: weeks.map((w) => w.label),
+    datasets: [
+      { label: "Falta", data: weeks.map((w) => w.c.falta), backgroundColor: "#ef4444" },
+      { label: "Meia Falta", data: weeks.map((w) => w.c.meia), backgroundColor: "#f59e0b" },
+      { label: "Abandono", data: weeks.map((w) => w.c.abandono), backgroundColor: "#7f1d1d" },
+    ],
+  }), [weeks]);
+
+  const weeklyLineChart = useMemo(() => ({
+    labels: weeks.map((w) => `S${w.idx}`),
+    datasets: [{ label: "Faltas", data: weeks.map((w) => totalFaltas(w.c)), borderColor: "#4f6ef7", backgroundColor: "rgba(79,110,247,0.12)", fill: true, tension: 0.35, pointRadius: 3 }],
+  }), [weeks]);
 
   const heatmap = useMemo(() => {
-    const counts = [0,0,0,0,0,0,0];
-    for (let d = 1; d <= nDays; d++) {
-      const wd = new Date(y, m - 1, d).getDay();
-      employees.forEach(e => { if (schedule[cellKey(e.id, d)] === "Falta" || schedule[cellKey(e.id, d)] === "Meia Falta") counts[wd]++; });
-    }
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    monthRecs.forEach((r) => { if (ABS_TYPES.includes(r.st)) counts[r.dow]++; });
     return counts;
-  }, [schedule, employees, nDays, y, m]);
+  }, [monthRecs]);
   const maxHeat = Math.max(1, ...heatmap);
 
-  const monthLabel = `${MESES[m - 1]} ${y}`;
+  const onCliente = (v) => { setFCliente(v); setFLoja(""); };
 
   return (
-    <div className="p-8 fade-in">
+    <div className="p-4 md:p-8 fade-in">
       <h1 className="text-2xl font-extrabold">Dashboard Operacional</h1>
       <p className="text-sm text-gray-400 mb-5">Análise completa de presenças, faltas e backups</p>
 
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit mb-5">
-        {[["geral","Visão Geral"],["mensal","Comparativo Mensal"],["semanal","Análise Semanal"]].map(([k,l]) => (
-          <button key={k} onClick={()=>setTab(k)} className={`px-4 py-1.5 rounded-md text-sm font-semibold ${tab===k ? "bg-white shadow text-[var(--text-primary)]" : "text-gray-500"}`}>{l}</button>
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">Mês em análise:</span>
+        <select value={selMonth} onChange={(e) => setSelMonth(e.target.value)} className={filterSelCls}>
+          {monthOptions.map((mk) => <option key={mk} value={mk}>{monthLabelOf(mk)}</option>)}
+        </select>
+        <select value={fCliente} onChange={(e) => onCliente(e.target.value)} className={filterSelCls}>
+          <option value="">Todos os Clientes</option>
+          {clients.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+        </select>
+        <select value={fLoja} onChange={(e) => setFLoja(e.target.value)} className={filterSelCls}>
+          <option value="">Todas as Lojas</option>
+          {storeOptions.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+        </select>
+      </div>
+
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit max-w-full overflow-x-auto mb-5">
+        {[["geral", "Visão Geral"], ["mensal", "Comparativo Mensal"], ["semanal", "Análise Semanal"]].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} className={`px-4 py-1.5 rounded-md text-sm font-semibold whitespace-nowrap ${tab === k ? "bg-white shadow text-[var(--text-primary)]" : "text-gray-500"}`}>{l}</button>
         ))}
       </div>
 
-      {tab === "geral" && (
+      {(loading || data.status === "error") && <StateBox status={data.status} error={data.error} onRetry={data.reload} />}
+      {monthEmpty && tab !== "mensal" && <StateBox status="ready" empty emptyText={`Sem dados registados na grelha para ${monthLabel}.`} />}
+
+      {!loading && data.status === "ready" && tab === "geral" && !monthEmpty && (
         <>
-          <div className="mb-5 flex items-center gap-2">
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">Mês em análise:</span>
-            <select value={selMonth} onChange={(e)=>setSelMonth(e.target.value)} className="border border-[var(--border-c)] rounded-lg px-3 py-1.5 text-sm font-semibold bg-white">
-              {monthOptions.map(mk => { const [yy,mm]=mk.split("-").map(Number); return <option key={mk} value={mk}>{MESES[mm-1]} {yy}</option>; })}
-            </select>
+          <div className="grid grid-cols-2 sm:grid-cols-4 2xl:grid-cols-8 gap-3 mb-5">
+            <MiniStat label="Total de faltas" value={totalFaltas(tot)} sub="Falta + Meia + Abandono" color="#ef4444" />
+            <MiniStat label="Faltas c/ bkp interno" value={tot.cInt} sub="cobertura interna" color="#0d9488" />
+            <MiniStat label="Faltas c/ bkp externo" value={tot.cExt} sub="cobertura externa" color="#d97706" />
+            <MiniStat label="Faltas sem backup" value={tot.sem} sub="sem cobertura registada" color="#ef4444" />
+            <MiniStat label="Meias faltas" value={tot.meia} sub={`${tot.falta} faltas completas`} color="#f59e0b" />
+            <MiniStat label="Abandonos" value={tot.abandono} sub="no mês" color="#b91c1c" />
+            <MiniStat label="Baixas" value={tot.baixa} sub="dias de baixa" color="#8b5cf6" />
+            <MiniStat label="Outros estados" value={outrosEstados(tot)} sub="Formação, Folga, Bkp, Bloq." />
+          </div>
+
+          <Card title={`Faltas por Cliente · ${monthLabel}`} className="mb-5" right={<span className="text-[11px] text-gray-400">Clique num cliente para ver o detalhe por loja</span>}>
+            {groups.length === 0 ? <div className="text-sm text-gray-400 py-6 text-center">Sem registos para os filtros selecionados.</div> : <ClientFaltasTable groups={groups} />}
+            <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">
+              Total de faltas = Falta + Meia Falta + Abandono. Cobertura = mesma loja e mesmo dia: células da loja pool que apontam para a loja em falta (ou registos de Backup interno com destino = loja, o maior dos dois) e registos de Backup externo com destino = loja; cada backup cobre apenas uma falta. Os estados “Backup Interno/Externo” da grelha contam-se em “Outros” e não são assumidos como cobertura de uma falta concreta.
+            </p>
+          </Card>
+
+          <div className="grid lg:grid-cols-3 gap-5 mb-5">
+            <Card title="Faltas por Cliente" className="lg:col-span-2">
+              {groups.length === 0 ? <div className="h-[240px] flex items-center justify-center text-gray-300 text-sm">Sem dados</div> :
+                <ChartCanvas type="bar" data={clienteChart} options={barStackOpts} />}
+            </Card>
+            <Card title="Cobertura das Faltas">
+              {totalFaltas(tot) === 0 ? <div className="h-[240px] flex items-center justify-center text-gray-300 text-sm">Sem faltas no mês</div> :
+                <ChartCanvas type="doughnut" data={coberturaChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } } }} />}
+            </Card>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <StatCard icon={ICONS.check} label="Taxa de Presença" value={`${stats.presenca}%`} sub={`mês ${selMonth}`} iconBg="#e6f9f0" iconColor="#10b981" />
-            <StatCard icon={ICONS.alert} label="Faltas (F+MF)" value={stats.falta + stats.meiaFalta} sub={`${stats.falta} completas · ${stats.meiaFalta} meias`} iconBg="#fef2f2" iconColor="#ef4444" />
-            <StatCard icon={ICONS.swap} label="Backup Interno" value={stats.backupInt} sub="cobertura interna" iconBg="#f0fdfa" iconColor="#14b8a6" />
-            <StatCard icon={ICONS.shield} label="Backup Externo" value={stats.backupExt} sub="cobertura externa" iconBg="#fffbeb" iconColor="#f59e0b" />
+            <StatCard icon={ICONS.check} label="Taxa de Presença" value={presencaPct(tot) === null ? "—" : `${presencaPct(tot)}%`} sub={`mês ${selMonth}`} iconBg="#e6f9f0" iconColor="#10b981" />
+            <StatCard icon={ICONS.swap} label="Backup Interno (grelha)" value={totalBkpInt(tot)} sub="estado + atribuições pool" iconBg="#f0fdfa" iconColor="#14b8a6" />
+            <StatCard icon={ICONS.shield} label="Backup Externo (grelha)" value={tot.bkpExt} sub="cobertura externa" iconBg="#fffbeb" iconColor="#f59e0b" />
+            <StatCard icon={ICONS.users} label="Custo Backups" value={fmtEUR(custoBackups)} sub={`${regInt} internos · ${regExt} externos registados`} iconBg="#f5f3ff" iconColor="#8b5cf6" />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <StatCard icon={ICONS.store} label="Loja + Faltas" value={stats.lojaMax[0]} sub={`${stats.lojaMax[1]} ausências`} iconBg="#eef1ff" iconColor="#4f6ef7" />
-            <StatCard icon={ICONS.dashboard} label="Loja − Faltas" value={stats.lojaMin[0]} sub={`${stats.lojaMin[1]} ausências`} iconBg="#eef1ff" iconColor="#4f6ef7" />
-            <StatCard icon={ICONS.userX} label="Operador + Faltas" value={stats.opMax[1] > 0 ? stats.opMax[0] : "—"} sub={`${stats.opMax[1]} faltas`} iconBg="#f5f3ff" iconColor="#8b5cf6" />
-            <StatCard icon={ICONS.users} label="Custo Backups" value={fmtEUR(stats.custoBackups)} sub="custo total do mês" iconBg="#f5f3ff" iconColor="#8b5cf6" />
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            <StatCard icon={ICONS.store} label="Loja + Faltas" value={extra.lojaMax[0]} sub={`${extra.lojaMax[1]} ausências`} iconBg="#eef1ff" iconColor="#4f6ef7" />
+            <StatCard icon={ICONS.dashboard} label="Loja − Faltas" value={extra.lojaMin[0]} sub={`${extra.lojaMin[1]} ausências`} iconBg="#eef1ff" iconColor="#4f6ef7" />
+            <StatCard icon={ICONS.userX} label="Operador + Faltas" value={extra.opMax[1] > 0 ? extra.opMax[0] : "—"} sub={`${extra.opMax[1]} faltas`} iconBg="#f5f3ff" iconColor="#8b5cf6" />
           </div>
 
           <div className="grid md:grid-cols-2 gap-5 mb-5">
-            <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
-              <h3 className="text-sm font-bold mb-3">Faltas por Loja (todas as ausências)</h3>
-              {loading ? <div className="h-[240px] flex items-center justify-center text-gray-300 text-sm">A carregar…</div> :
-                <ChartCanvas type="bar" data={faltasPorLojaChart} options={{ responsive:true, maintainAspectRatio:false, scales:{ x:{stacked:true, grid:{display:false}}, y:{stacked:true, beginAtZero:true, ticks:{precision:0}} }, plugins:{legend:{position:"bottom", labels:{boxWidth:10, font:{size:11}}}} }} />}
-            </div>
-            <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
-              <h3 className="text-sm font-bold mb-3">Distribuição de Status</h3>
-              {loading ? <div className="h-[240px] flex items-center justify-center text-gray-300 text-sm">A carregar…</div> :
-                <ChartCanvas type="doughnut" data={distribChart} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:"right", labels:{boxWidth:10, font:{size:11}}}} }} />}
-            </div>
+            <Card title="Faltas por Loja (todas as ausências)">
+              {faltasPorLojaChart.labels.length === 0 ? <div className="h-[240px] flex items-center justify-center text-gray-300 text-sm">Sem dados</div> :
+                <ChartCanvas type="bar" data={faltasPorLojaChart} options={barStackOpts} />}
+            </Card>
+            <Card title="Distribuição de Status">
+              <ChartCanvas type="doughnut" data={distribChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "right", labels: { boxWidth: 10, font: { size: 11 } } } } }} />
+            </Card>
           </div>
 
           <div className="grid md:grid-cols-2 gap-5">
-            <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
-              <h3 className="text-sm font-bold mb-3">Evolução Semanal</h3>
-              <ChartCanvas type="line" data={weeklyChart} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}} }} />
-            </div>
-            <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
-              <h3 className="text-sm font-bold mb-3">Heatmap · Faltas por Dia da Semana</h3>
+            <Card title="Evolução Semanal">
+              <ChartCanvas type="line" data={weeklyLineChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }} />
+            </Card>
+            <Card title="Heatmap · Faltas por Dia da Semana">
               <div className="grid grid-cols-7 gap-2 mt-4">
                 {DIAS_SEMANA.map((d, i) => (
                   <div key={d} className="text-center">
                     <div className="text-[11px] text-gray-400 font-semibold mb-1.5">{d}</div>
                     <div className="rounded-lg h-16 flex items-center justify-center text-sm font-bold"
-                      style={{ background: `rgba(239,68,68,${0.12 + 0.75*(heatmap[i]/maxHeat)})`, color: heatmap[i] > maxHeat*0.55 ? "#fff" : "#991b1b" }}>
+                      style={{ background: `rgba(239,68,68,${0.12 + 0.75 * (heatmap[i] / maxHeat)})`, color: heatmap[i] > maxHeat * 0.55 ? "#fff" : "#991b1b" }}>
                       {heatmap[i]}
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            </Card>
           </div>
         </>
       )}
 
-      {tab === "mensal" && (
-        <MonthlyComparativeTab monthOptions={monthOptions} getScheduleForMonth={getScheduleForMonth} employees={employees} />
+      {!loading && data.status === "ready" && tab === "mensal" && (
+        <MonthlyComparativeTab months={months} recs={recs} bks={bks} monthHasData={data.monthHasData} selMonth={selMonth} />
       )}
 
-      {tab === "semanal" && (
-        <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
-          <h3 className="text-sm font-bold mb-3">Análise Semanal · {monthLabel}</h3>
-          <ChartCanvas type="bar" data={weeklyChart} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}} }} height={320} />
-        </div>
+      {!loading && data.status === "ready" && tab === "semanal" && !monthEmpty && (
+        <WeeklyTab mk={selMonth} monthLabel={monthLabel} weeks={weeks} weeklyStackChart={weeklyStackChart} recs={monthRecs} />
       )}
     </div>
   );
 }
 
-function MonthlyComparativeTab({ monthOptions, getScheduleForMonth, employees }) {
-  const [data, setData] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    const last6 = monthOptions.slice(-6);
-    Promise.all(last6.map(mk => getScheduleForMonth(mk))).then((results) => {
-      if (!alive) return;
-      const labels = last6.map(mk => { const [y,m]=mk.split("-").map(Number); return `${MESES[m-1].slice(0,3)}/${String(y).slice(2)}`; });
-      const presenca = results.map(sched => {
-        let ok=0, base=0;
-        Object.values(sched).forEach(v => {
-          if (["OK","Falta","Meia Falta","Backup Interno","Backup Externo"].includes(v)) { base++; if (v==="OK") ok++; }
-        });
-        return base > 0 ? Math.round((ok/base)*1000)/10 : 0;
-      });
-      const faltas = results.map(sched => Object.values(sched).filter(v => v==="Falta"||v==="Meia Falta").length);
-      setData({ labels, presenca, faltas });
-    });
-    return () => { alive = false; };
-  }, [monthOptions]);
+const varBadge = (delta, pct, inverse = true) => {
+  if (delta === null || delta === undefined) return <span className="text-gray-400">—</span>;
+  if (delta === 0) return <span className="text-gray-400">= 0</span>;
+  const bad = inverse ? delta > 0 : delta < 0; // faltas a subir = mau; presença a descer = mau
+  return <span style={{ color: bad ? "#ef4444" : "#10b981", fontWeight: 700 }}>{delta > 0 ? "▲" : "▼"} {Math.abs(delta)}{pct !== null && pct !== undefined ? ` (${pct > 0 ? "+" : ""}${pct}%)` : ""}</span>;
+};
 
-  if (!data) return <div className="text-sm text-gray-400 p-6">A carregar comparativo…</div>;
+function MonthlyComparativeTab({ months, recs, bks, monthHasData, selMonth }) {
+  const rows = useMemo(() => months.map((mk) => {
+    const has = !!monthHasData[mk];
+    const c = countRecs(recs.filter((r) => r.mk === mk));
+    const mb = bks.filter((b) => (b.data || "").startsWith(mk));
+    return { mk, has, c, regInt: mb.filter((b) => b.tipo !== "Externo").length, regExt: mb.filter((b) => b.tipo === "Externo").length, pres: has ? presencaPct(c) : null };
+  }), [months, recs, bks, monthHasData]);
+
+  const labels = rows.map((r) => monthShort(r.mk));
+  const v = (fn) => rows.map((r) => (r.has ? fn(r) : null));
+  const faltasChart = { labels, datasets: [
+    { label: "Falta", data: v((r) => r.c.falta), backgroundColor: "#ef4444" },
+    { label: "Meia Falta", data: v((r) => r.c.meia), backgroundColor: "#f59e0b" },
+    { label: "Abandono", data: v((r) => r.c.abandono), backgroundColor: "#7f1d1d" },
+  ] };
+  const bkpGrelhaChart = { labels, datasets: [
+    { label: "Backup Interno (grelha)", data: v((r) => totalBkpInt(r.c)), backgroundColor: "#14b8a6" },
+    { label: "Backup Externo (grelha)", data: v((r) => r.c.bkpExt), backgroundColor: "#fbbf24" },
+  ] };
+  const bkpRegChart = { labels, datasets: [
+    { label: "Registos Internos", data: rows.map((r) => r.regInt), backgroundColor: "#0d9488" },
+    { label: "Registos Externos", data: rows.map((r) => r.regExt), backgroundColor: "#f59e0b" },
+  ] };
+  const presChart = { labels, datasets: [{ label: "Presença %", data: rows.map((r) => r.pres), borderColor: "#10b981", backgroundColor: "rgba(16,185,129,0.12)", fill: true, tension: 0.35, spanGaps: false }] };
+  const anyData = rows.some((r) => r.has);
+
+  if (!anyData) return <StateBox status="ready" empty emptyText="Sem dados na grelha para os últimos 6 meses." />;
 
   return (
-    <div className="grid md:grid-cols-2 gap-5">
-      <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
-        <h3 className="text-sm font-bold mb-3">Taxa de Presença · últimos {data.labels.length} meses</h3>
-        <ChartCanvas type="line" data={{ labels: data.labels, datasets:[{ label:"Presença %", data:data.presenca, borderColor:"#10b981", backgroundColor:"rgba(16,185,129,0.12)", fill:true, tension:0.35 }] }} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, max:100}} }} />
+    <div>
+      <p className="text-xs text-gray-400 mb-3">Últimos {months.length} meses até {monthLabelOf(selMonth)}. Meses sem dados na grelha aparecem como lacuna (não como zero).</p>
+      <div className="grid md:grid-cols-2 gap-5 mb-5">
+        <Card title="Faltas · Meias Faltas · Abandonos"><ChartCanvas type="bar" data={faltasChart} options={barStackOpts} /></Card>
+        <Card title="Taxa de Presença"><ChartCanvas type="line" data={presChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: false, suggestedMin: 80, suggestedMax: 100, ticks: { callback: (val) => val + "%" } } } }} /></Card>
+        <Card title="Backups na grelha · Interno vs Externo"><ChartCanvas type="bar" data={bkpGrelhaChart} options={barGroupOpts} /></Card>
+        <Card title="Registos de Backup (coleção Backups)"><ChartCanvas type="bar" data={bkpRegChart} options={barGroupOpts} /></Card>
       </div>
-      <div className="bg-white rounded-2xl border border-[var(--border-c)] p-5">
-        <h3 className="text-sm font-bold mb-3">Total de Faltas · últimos {data.labels.length} meses</h3>
-        <ChartCanvas type="bar" data={{ labels: data.labels, datasets:[{ label:"Faltas", data:data.faltas, backgroundColor:"#ef4444" }] }} options={{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}} }} />
+      <Card title="Variação entre meses">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs min-w-[820px]">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wide text-gray-400 text-center">
+                {["Mês", "Faltas", "Meias", "Abandonos", "Total", "Var. total", "Presença", "Var. presença", "Bkp Int. (grelha)", "Bkp Ext. (grelha)", "Reg. Int.", "Reg. Ext."].map((h, i) => <th key={h} className={`px-3 py-2 border-b border-[var(--border-c)] ${i === 0 ? "text-left" : ""}`}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const prev = i > 0 ? rows[i - 1] : null;
+                const t = totalFaltas(r.c);
+                const pt = prev && prev.has ? totalFaltas(prev.c) : null;
+                const dT = r.has && pt !== null ? t - pt : null;
+                const pctT = dT !== null && pt > 0 ? Math.round((dT / pt) * 100) : null;
+                const dP = r.has && prev && prev.pres !== null && r.pres !== null ? Math.round((r.pres - prev.pres) * 10) / 10 : null;
+                const td = "px-3 py-2 border-b border-[var(--border-c)] text-center tabular-nums";
+                return (
+                  <tr key={r.mk} className={r.mk === selMonth ? "bg-gray-50" : ""}>
+                    <td className="px-3 py-2 border-b border-[var(--border-c)] font-bold whitespace-nowrap">{monthLabelOf(r.mk)}</td>
+                    {r.has ? <>
+                      <td className={td}>{r.c.falta}</td><td className={td}>{r.c.meia}</td><td className={td}>{r.c.abandono}</td>
+                      <td className={td + " font-extrabold"}>{t}</td>
+                      <td className={td}>{varBadge(dT, pctT, true)}</td>
+                      <td className={td}>{r.pres === null ? "—" : `${r.pres}%`}</td>
+                      <td className={td}>{varBadge(dP, null, false)}</td>
+                      <td className={td}>{totalBkpInt(r.c)}</td><td className={td}>{r.c.bkpExt}</td>
+                    </> : <td colSpan={9} className="px-3 py-2 border-b border-[var(--border-c)] text-center text-gray-400">Sem dados na grelha</td>}
+                    <td className={td}>{r.regInt}</td><td className={td}>{r.regExt}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function WeekMatrix({ weeks, recs }) {
+  const [open, setOpen] = useState({});
+  const rows = useMemo(() => {
+    const cmap = new Map();
+    recs.forEach((r) => {
+      if (!ABS_TYPES.includes(r.st)) return;
+      const ck = r.clientId || "_none";
+      let c = cmap.get(ck);
+      if (!c) { c = { id: ck, nome: r.client, w: {}, tot: 0, stores: new Map() }; cmap.set(ck, c); }
+      c.w[r.wk] = (c.w[r.wk] || 0) + 1; c.tot++;
+      const sk = r.storeId || "_none";
+      let s = c.stores.get(sk);
+      if (!s) { s = { id: sk, nome: r.store, w: {}, tot: 0 }; c.stores.set(sk, s); }
+      s.w[r.wk] = (s.w[r.wk] || 0) + 1; s.tot++;
+    });
+    const cmp = (a, b) => b.tot - a.tot || a.nome.localeCompare(b.nome);
+    return [...cmap.values()].map((c) => ({ ...c, stores: [...c.stores.values()].sort(cmp) })).sort(cmp);
+  }, [recs]);
+  const max = Math.max(1, ...rows.flatMap((c) => weeks.map((w) => c.w[w.wk] || 0)));
+  if (!rows.length) return <div className="text-sm text-gray-400 py-4 text-center">Sem faltas registadas neste mês.</div>;
+  const cell = (n) => (
+    <td className="px-1 py-1 border-b border-[var(--border-c)] text-center">
+      <div className="rounded-md h-7 flex items-center justify-center font-bold tabular-nums" style={n ? { background: `rgba(239,68,68,${0.12 + 0.75 * (n / max)})`, color: n / max > 0.55 ? "#fff" : "#991b1b" } : { color: "#9ca3af" }}>{n}</div>
+    </td>
+  );
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs" style={{ minWidth: 300 + weeks.length * 70 }}>
+        <thead>
+          <tr className="text-[10px] uppercase tracking-wide text-gray-400 text-center">
+            <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">Cliente / Loja</th>
+            {weeks.map((w) => <th key={w.wk} className="px-2 py-2 border-b border-[var(--border-c)] whitespace-nowrap" title={w.label}>S{w.idx}</th>)}
+            <th className="px-2 py-2 border-b border-[var(--border-c)]">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => (
+            <React.Fragment key={c.id}>
+              <tr className="cursor-pointer hover:bg-gray-50/60" onClick={() => setOpen((p) => ({ ...p, [c.id]: !p[c.id] }))}>
+                <td className="px-3 py-1 border-b border-[var(--border-c)] font-bold">
+                  <span className="inline-flex items-center gap-2"><span className="text-gray-400" style={{ display: "inline-flex", transform: open[c.id] ? "rotate(0deg)" : "rotate(-90deg)" }}><Icon path={ICONS.chevronDown} size={14} /></span>{c.nome}</span>
+                </td>
+                {weeks.map((w) => <React.Fragment key={w.wk}>{cell(c.w[w.wk] || 0)}</React.Fragment>)}
+                <td className="px-2 py-1 border-b border-[var(--border-c)] text-center font-extrabold">{c.tot}</td>
+              </tr>
+              {open[c.id] && c.stores.map((s) => (
+                <tr key={c.id + s.id} className="bg-gray-50">
+                  <td className="px-3 py-1 border-b border-[var(--border-c)]" style={{ paddingLeft: 34 }}>{s.nome}</td>
+                  {weeks.map((w) => <React.Fragment key={w.wk}>{cell(s.w[w.wk] || 0)}</React.Fragment>)}
+                  <td className="px-2 py-1 border-b border-[var(--border-c)] text-center font-bold">{s.tot}</td>
+                </tr>
+              ))}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function WeeklyTab({ mk, monthLabel, weeks, weeklyStackChart, recs }) {
+  const totals = weeks.map((w) => totalFaltas(w.c));
+  const maxT = Math.max(...totals, 0);
+  const sum = totals.reduce((a, b) => a + b, 0);
+  const peaks = maxT > 0 ? weeks.filter((w, i) => totals[i] === maxT) : [];
+  return (
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <MiniStat label="Faltas no mês" value={sum} sub="Falta + Meia + Abandono" color="#ef4444" />
+        <MiniStat label="Média por semana" value={weeks.length ? (Math.round((sum / weeks.length) * 10) / 10).toString().replace(".", ",") : "0"} sub={`${weeks.length} semanas (seg–dom)`} />
+        <MiniStat label="Semana de pico" value={peaks.length ? peaks.map((w) => `S${w.idx}`).join(", ") : "—"} sub={peaks.length ? `${maxT} ocorrências` : "sem faltas"} color="#f59e0b" />
+        <MiniStat label="Sem backup" value={weeks.reduce((a, w) => a + w.c.sem, 0)} sub="faltas sem cobertura" color="#ef4444" />
       </div>
+      <div className="grid lg:grid-cols-2 gap-5 mb-5">
+        <Card title={`Faltas por semana · ${monthLabel}`}>
+          <ChartCanvas type="bar" data={weeklyStackChart} options={barStackOpts} height={300} />
+        </Card>
+        <Card title="Detalhe semanal">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[520px]">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wide text-gray-400 text-center">
+                  {["Semana", "Faltas", "Meias", "Aband.", "Total", "Sem bkp", "Var."].map((h, i) => <th key={h} className={`px-2 py-2 border-b border-[var(--border-c)] ${i === 0 ? "text-left" : ""}`}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {weeks.map((w, i) => {
+                  const t = totals[i];
+                  const d = i > 0 ? t - totals[i - 1] : null;
+                  const isPeak = maxT > 0 && t === maxT;
+                  const td = "px-2 py-2 border-b border-[var(--border-c)] text-center tabular-nums";
+                  return (
+                    <tr key={w.wk} className={isPeak ? "bg-red-50" : ""}>
+                      <td className="px-2 py-2 border-b border-[var(--border-c)] font-semibold whitespace-nowrap">{w.label}{isPeak && <span className="ml-2"><Pill color="#ef4444">Pico</Pill></span>}</td>
+                      <td className={td}>{w.c.falta}</td><td className={td}>{w.c.meia}</td><td className={td}>{w.c.abandono}</td>
+                      <td className={td + " font-extrabold"}>{t}</td><td className={td}>{w.c.sem}</td>
+                      <td className={td}>{varBadge(d, null, true)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+      <Card title="Faltas por semana · Cliente e Loja" right={<span className="text-[11px] text-gray-400">Clique num cliente para ver as lojas</span>}>
+        <WeekMatrix weeks={weeks} recs={recs} />
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* ANÁLISES                                                               */
+/* ---------------------------------------------------------------------- */
+const ALERT_CFG_DEFAULT = {
+  motSem: 2,        // faltas do mesmo motorista na mesma semana
+  motMes: 3,        // faltas do mesmo motorista no mês
+  motSemanasMes: 3, // semanas distintas do mês com falta do mesmo motorista
+  repSem: 3,        // faltas na mesma loja na semana
+  repCliSem: 5,     // faltas no mesmo cliente na semana
+  repMes: 6,        // faltas na mesma loja no mês
+  repCliMes: 10,    // faltas no mesmo cliente no mês
+  aumPct: 50,       // % mínimo de aumento face ao período anterior (loja/cliente)
+  aumMin: 2,        // aumento mínimo absoluto (nº de faltas)
+  semMult: 1.5,     // semana/mês acima do habitual = média anterior × este fator
+  semMin: 3,        // mínimo de faltas numa semana para alertar "acima do habitual"
+  mesMin: 6,        // mínimo de faltas num mês para alertar "acima do habitual"
+  abMin: 1,         // abandonos mínimos para alertar aumento
+  semBkpSem: 2,     // faltas sem backup na mesma loja na semana
+  semBkpMes: 4,     // faltas sem backup na mesma loja no mês
+};
+const ALERT_CFG_LABELS = {
+  motSem: "Motorista: faltas na semana ≥", motMes: "Motorista: faltas no mês ≥", motSemanasMes: "Motorista: semanas com falta no mês ≥",
+  repSem: "Loja: faltas na semana ≥", repCliSem: "Cliente: faltas na semana ≥", repMes: "Loja: faltas no mês ≥", repCliMes: "Cliente: faltas no mês ≥",
+  aumPct: "Aumento vs período anterior (%) ≥", aumMin: "Aumento vs período anterior (nº) ≥",
+  semMult: "Acima do habitual: fator × média anterior", semMin: "Semana: mínimo de faltas", mesMin: "Mês: mínimo de faltas",
+  abMin: "Abandonos: mínimo para alertar", semBkpSem: "Loja: faltas sem backup na semana ≥", semBkpMes: "Loja: faltas sem backup no mês ≥",
+};
+
+function groupCount(recs, keyFn) {
+  const m = new Map();
+  recs.forEach((r) => { const k = keyFn(r); if (k === "" || k === undefined) return; let e = m.get(k); if (!e) { e = { k, n: 0, recs: [] }; m.set(k, e); } e.n++; e.recs.push(r); });
+  return m;
+}
+
+// Alertas semanais e mensais calculados apenas com registos reais (nada estimado).
+function computeAlerts(abs, periodMonths, loadMonths, monthHasData, cfg) {
+  const alerts = [];
+  const push = (a) => alerts.push(a);
+  const sev = (val, thr) => (val >= thr * 2 ? "alta" : "média");
+  const loadedFrom = `${loadMonths[0]}-01`;
+  const lastLoaded = loadMonths[loadMonths.length - 1];
+  const [ly, lm] = lastLoaded.split("-").map(Number);
+  const loadedTo = isoDate(ly, lm - 1, daysInMonth(ly, lm - 1));
+  const byWk = new Map();
+  abs.forEach((r) => { let a = byWk.get(r.wk); if (!a) { a = []; byWk.set(r.wk, a); } a.push(r); });
+  const wkComplete = (wk) => {
+    if (wk < loadedFrom) return false;
+    const end = dateKey(addDays(parseISO(wk), 6));
+    if (end > loadedTo) return false;
+    // só conta semanas cujos meses têm dados na grelha (evita "zeros" fictícios em meses vazios)
+    return !!monthHasData[wk.slice(0, 7)] && !!monthHasData[end.slice(0, 7)];
+  };
+  const wkRecs = (wk) => byWk.get(wk) || [];
+  const prevWk = (wk) => dateKey(addDays(parseISO(wk), -7));
+  const fmtF = (n) => (Math.round(n * 10) / 10).toString().replace(".", ",");
+
+  // ---------- SEMANAIS ----------
+  const periodWeeks = new Set();
+  periodMonths.forEach((mk) => weeksOfMonth(mk).forEach((w) => periodWeeks.add(w.wk)));
+  [...periodWeeks].sort().forEach((wk) => {
+    const rs = wkRecs(wk);
+    if (!rs.length) return;
+    const per = `Semana ${weekRangeLabel(wk)}${wkComplete(wk) ? "" : " (dados incompletos)"}`;
+    const base = { scope: "Semanal", period: per, sortKey: wk };
+    // Semana acima do habitual
+    const prevCounts = [1, 2, 3, 4].map((i) => dateKey(addDays(parseISO(wk), -7 * i))).filter(wkComplete).map((k) => wkRecs(k).length);
+    if (prevCounts.length >= 2) {
+      const avg = prevCounts.reduce((a, b) => a + b, 0) / prevCounts.length;
+      if (rs.length >= cfg.semMin && rs.length >= avg * cfg.semMult && rs.length > avg) {
+        push({ ...base, kind: "Semana acima do habitual", sev: sev(rs.length, Math.max(1, avg * cfg.semMult)), title: `${rs.length} faltas na semana`, detail: `Média das ${prevCounts.length} semanas anteriores: ${fmtF(avg)} (limite: ×${cfg.semMult}, mín. ${cfg.semMin}).`, recs: rs });
+      }
+    }
+    // Motoristas recorrentes na semana
+    groupCount(rs, (r) => r.empId).forEach((e) => {
+      if (e.n >= cfg.motSem) push({ ...base, kind: "Motorista com faltas recorrentes", sev: sev(e.n, cfg.motSem), title: `${e.recs[0].emp} · ${e.n} faltas`, detail: `Dias: ${[...new Set(e.recs.map((r) => pad2(r.day)))].sort().join(", ")} · ${e.recs[0].store}.`, recs: e.recs });
+    });
+    // Repetição na mesma loja / cliente
+    groupCount(rs, (r) => r.storeId).forEach((e) => {
+      if (e.n >= cfg.repSem) push({ ...base, kind: "Repetição na mesma loja", sev: sev(e.n, cfg.repSem), title: `${e.recs[0].store} · ${e.n} faltas`, detail: `Cliente: ${e.recs[0].client}.`, recs: e.recs });
+    });
+    groupCount(rs, (r) => r.clientId).forEach((e) => {
+      if (e.n >= cfg.repCliSem) push({ ...base, kind: "Repetição no mesmo cliente", sev: sev(e.n, cfg.repCliSem), title: `${e.recs[0].client} · ${e.n} faltas`, detail: "Total do cliente na semana (todas as lojas).", recs: e.recs });
+    });
+    // Sem backup
+    groupCount(rs.filter((r) => r.cob === "sem"), (r) => r.storeId).forEach((e) => {
+      if (e.n >= cfg.semBkpSem) push({ ...base, kind: "Ocorrências sem backup", sev: sev(e.n, cfg.semBkpSem), title: `${e.recs[0].store} · ${e.n} faltas sem backup`, detail: `Cliente: ${e.recs[0].client}.`, recs: e.recs });
+    });
+    // Aumentos vs semana anterior (só se a semana anterior estiver completa nos dados)
+    const pk = prevWk(wk);
+    if (wkComplete(pk)) {
+      const pr = wkRecs(pk);
+      [["storeId", "store", "Aumento de faltas na loja"], ["clientId", "client", "Aumento de faltas no cliente"]].forEach(([idK, nameK, kind]) => {
+        const prevMap = groupCount(pr, (r) => r[idK]);
+        groupCount(rs, (r) => r[idK]).forEach((e) => {
+          const p = prevMap.get(e.k) ? prevMap.get(e.k).n : 0;
+          if (e.n - p >= cfg.aumMin && e.n >= p * (1 + cfg.aumPct / 100)) push({ ...base, kind, sev: sev(e.n - p, cfg.aumMin), title: `${e.recs[0][nameK]} · ${p} → ${e.n} faltas`, detail: `Semana anterior (${weekRangeLabel(pk)}): ${p}.`, recs: e.recs });
+        });
+      });
+      const ab = rs.filter((r) => r.st === "Abandono"), abp = pr.filter((r) => r.st === "Abandono").length;
+      if (ab.length >= cfg.abMin && ab.length > abp) push({ ...base, kind: "Aumento de abandonos", sev: sev(ab.length, Math.max(1, cfg.abMin)), title: `${ab.length} abandono(s) · antes ${abp}`, detail: `Semana anterior: ${abp}.`, recs: ab });
+    }
+  });
+
+  // ---------- MENSAIS ----------
+  periodMonths.forEach((mk) => {
+    if (!monthHasData[mk]) return;
+    const rs = abs.filter((r) => r.mk === mk);
+    if (!rs.length) return;
+    const base = { scope: "Mensal", period: monthLabelOf(mk), sortKey: mk };
+    const pmk = shiftMonth(mk, -1);
+    const prevOk = loadMonths.includes(pmk) && monthHasData[pmk];
+    const pr = prevOk ? abs.filter((r) => r.mk === pmk) : [];
+    // Mês acima do habitual
+    const prevTot = [1, 2, 3].map((i) => shiftMonth(mk, -i)).filter((k) => loadMonths.includes(k) && monthHasData[k]).map((k) => abs.filter((r) => r.mk === k).length);
+    if (prevTot.length >= 1) {
+      const avg = prevTot.reduce((a, b) => a + b, 0) / prevTot.length;
+      if (rs.length >= cfg.mesMin && rs.length >= avg * cfg.semMult && rs.length > avg) {
+        push({ ...base, kind: "Mês acima do habitual", sev: sev(rs.length, Math.max(1, avg * cfg.semMult)), title: `${rs.length} faltas no mês`, detail: `Média dos ${prevTot.length} mês(es) anterior(es) com dados: ${fmtF(avg)} (limite: ×${cfg.semMult}, mín. ${cfg.mesMin}).`, recs: rs });
+      }
+    }
+    // Motoristas
+    groupCount(rs, (r) => r.empId).forEach((e) => {
+      const nWk = new Set(e.recs.map((r) => r.wk)).size;
+      if (e.n >= cfg.motMes) push({ ...base, kind: "Motorista com faltas recorrentes", sev: sev(e.n, cfg.motMes), title: `${e.recs[0].emp} · ${e.n} faltas no mês`, detail: `Em ${nWk} semana(s) distinta(s) · ${e.recs[0].store}.`, recs: e.recs });
+      else if (nWk >= cfg.motSemanasMes) push({ ...base, kind: "Motorista com faltas recorrentes", sev: "média", title: `${e.recs[0].emp} · faltas em ${nWk} semanas`, detail: `${e.n} faltas · ${e.recs[0].store}.`, recs: e.recs });
+    });
+    // Repetição
+    groupCount(rs, (r) => r.storeId).forEach((e) => {
+      if (e.n >= cfg.repMes) push({ ...base, kind: "Repetição na mesma loja", sev: sev(e.n, cfg.repMes), title: `${e.recs[0].store} · ${e.n} faltas`, detail: `Cliente: ${e.recs[0].client}.`, recs: e.recs });
+    });
+    groupCount(rs, (r) => r.clientId).forEach((e) => {
+      if (e.n >= cfg.repCliMes) push({ ...base, kind: "Repetição no mesmo cliente", sev: sev(e.n, cfg.repCliMes), title: `${e.recs[0].client} · ${e.n} faltas`, detail: "Total do cliente no mês (todas as lojas).", recs: e.recs });
+    });
+    // Sem backup
+    groupCount(rs.filter((r) => r.cob === "sem"), (r) => r.storeId).forEach((e) => {
+      if (e.n >= cfg.semBkpMes) push({ ...base, kind: "Ocorrências sem backup", sev: sev(e.n, cfg.semBkpMes), title: `${e.recs[0].store} · ${e.n} faltas sem backup`, detail: `Cliente: ${e.recs[0].client}.`, recs: e.recs });
+    });
+    // Aumentos vs mês anterior
+    if (prevOk) {
+      [["storeId", "store", "Aumento de faltas na loja"], ["clientId", "client", "Aumento de faltas no cliente"]].forEach(([idK, nameK, kind]) => {
+        const prevMap = groupCount(pr, (r) => r[idK]);
+        groupCount(rs, (r) => r[idK]).forEach((e) => {
+          const p = prevMap.get(e.k) ? prevMap.get(e.k).n : 0;
+          if (e.n - p >= cfg.aumMin && e.n >= p * (1 + cfg.aumPct / 100)) push({ ...base, kind, sev: sev(e.n - p, cfg.aumMin), title: `${e.recs[0][nameK]} · ${p} → ${e.n} faltas`, detail: `Mês anterior (${monthLabelOf(pmk)}): ${p}.`, recs: e.recs });
+        });
+      });
+      const ab = rs.filter((r) => r.st === "Abandono"), abp = pr.filter((r) => r.st === "Abandono").length;
+      if (ab.length >= cfg.abMin && ab.length > abp) push({ ...base, kind: "Aumento de abandonos", sev: sev(ab.length, Math.max(1, cfg.abMin)), title: `${ab.length} abandono(s) · antes ${abp}`, detail: `Mês anterior: ${abp}.`, recs: ab });
+    }
+  });
+  return alerts.map((a, i) => ({ ...a, id: i }));
+}
+
+function AlertsPanel({ alerts, cfg, setCfg, periodLabel }) {
+  const [openId, setOpenId] = useState(null);
+  const [showAll, setShowAll] = useState({});
+  const [showCfg, setShowCfg] = useState(false);
+  const sevColor = { alta: "#ef4444", "média": "#f59e0b" };
+  const groups = ["Semanal", "Mensal"].map((sc) => ({
+    scope: sc,
+    items: alerts.filter((a) => a.scope === sc).sort((a, b) => b.sortKey.localeCompare(a.sortKey) || (a.sev === b.sev ? 0 : a.sev === "alta" ? -1 : 1) || b.recs.length - a.recs.length),
+  }));
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <p className="text-xs text-gray-400 max-w-2xl">Alertas calculados automaticamente com os registos da grelha e dos backups para {periodLabel}. Os limites são critérios configuráveis (não são dados registados) e as comparações usam apenas períodos com dados.</p>
+        <button onClick={() => setShowCfg((v) => !v)} className="px-3 py-1.5 rounded-lg text-sm font-semibold border border-[var(--border-c)] bg-white">{showCfg ? "Ocultar critérios" : "Critérios de alerta"}</button>
+      </div>
+      {showCfg && (
+        <Card title="Critérios de alerta (configuráveis)" className="mb-5" right={<button onClick={() => setCfg({ ...ALERT_CFG_DEFAULT })} className="text-xs font-semibold text-[var(--accent)]">Repor valores por defeito</button>}>
+          <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-5 gap-y-3">
+            {Object.keys(ALERT_CFG_DEFAULT).map((k) => (
+              <label key={k} className="flex items-center justify-between gap-3 text-xs text-gray-500">
+                <span>{ALERT_CFG_LABELS[k]}</span>
+                <input type="number" min="0" step={k === "semMult" ? "0.1" : "1"} value={cfg[k]} onChange={(e) => { const n = Number(e.target.value); setCfg({ ...cfg, [k]: Number.isFinite(n) ? n : ALERT_CFG_DEFAULT[k] }); }} className="w-20 px-2 py-1 rounded-lg border border-[var(--border-c)] text-sm text-right bg-white" />
+              </label>
+            ))}
+          </div>
+        </Card>
+      )}
+      <div className="grid lg:grid-cols-2 gap-5 items-start">
+        {groups.map((g) => {
+          const shown = showAll[g.scope] ? g.items : g.items.slice(0, 25);
+          return (
+            <Card key={g.scope} title={`Alertas ${g.scope === "Semanal" ? "semanais" : "mensais"}`} right={<span className="text-[11px] text-gray-400">{g.items.length} alerta(s) · {g.items.filter((a) => a.sev === "alta").length} de gravidade alta</span>}>
+              {g.items.length === 0 ? <div className="text-sm text-gray-400 py-6 text-center">Sem alertas com os critérios atuais.</div> : (
+                <div className="space-y-2">
+                  {shown.map((a) => (
+                    <div key={a.id} className="rounded-xl border border-[var(--border-c)] overflow-hidden" style={{ borderLeft: `4px solid ${sevColor[a.sev]}` }}>
+                      <button onClick={() => setOpenId(openId === a.id ? null : a.id)} className="w-full text-left px-3 py-2.5 hover:bg-gray-50">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <Pill color={sevColor[a.sev]}>{a.sev === "alta" ? "Alta" : "Média"}</Pill>
+                          <span className="text-[11px] font-bold text-gray-500">{a.kind}</span>
+                          <span className="text-[11px] text-gray-400 ml-auto">{a.period}</span>
+                        </div>
+                        <div className="text-sm font-bold break-words">{a.title}</div>
+                        <div className="text-xs text-gray-400 break-words">{a.detail}</div>
+                      </button>
+                      {openId === a.id && <div className="px-3 pb-3"><OccurrenceTable items={a.recs} maxH={240} /></div>}
+                    </div>
+                  ))}
+                  {g.items.length > 25 && (
+                    <button onClick={() => setShowAll((p) => ({ ...p, [g.scope]: !p[g.scope] }))} className="w-full py-2 text-xs font-semibold text-[var(--accent)]">{showAll[g.scope] ? "Mostrar menos" : `Mostrar todos (${g.items.length})`}</button>
+                  )}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RankSection({ title, rows, selected, onSelect, showParent, emptyText }) {
+  const top = rows.slice(0, 10);
+  const chart = {
+    labels: top.map((r) => r.nome),
+    datasets: [
+      { label: "Falta", data: top.map((r) => r.c.falta), backgroundColor: "#ef4444" },
+      { label: "Meia Falta", data: top.map((r) => r.c.meia), backgroundColor: "#f59e0b" },
+      { label: "Abandono", data: top.map((r) => r.c.abandono), backgroundColor: "#7f1d1d" },
+    ],
+  };
+  const sel = rows.find((r) => r.id === selected);
+  const td = "px-3 py-2 border-b border-[var(--border-c)] text-center tabular-nums";
+  return (
+    <Card title={title} className="mb-5">
+      {rows.length === 0 ? <div className="text-sm text-gray-400 py-6 text-center">{emptyText}</div> : (
+        <>
+          <div className="mb-4"><ChartCanvas type="bar" data={chart} options={hBarStackOpts} height={Math.max(140, 60 + top.length * 30)} /></div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[760px]">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wide text-gray-400 text-center">
+                  <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">#</th>
+                  <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">{showParent ? "Loja" : "Cliente"}</th>
+                  {showParent && <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">Cliente</th>}
+                  {["Faltas", "Meias", "Abandonos", "Total", "Com cobertura", "Sem cobertura", "% sem cob."].map((h) => <th key={h} className="px-3 py-2 border-b border-[var(--border-c)]">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => {
+                  const t = totalFaltas(r.c);
+                  const cob = r.c.cInt + r.c.cExt;
+                  return (
+                    <tr key={r.id} onClick={() => onSelect(selected === r.id ? null : r.id)} className={`cursor-pointer hover:bg-gray-50/60 ${selected === r.id ? "bg-gray-50" : ""}`}>
+                      <td className="px-3 py-2 border-b border-[var(--border-c)] text-gray-400">{i + 1}</td>
+                      <td className="px-3 py-2 border-b border-[var(--border-c)] font-bold">{r.nome}</td>
+                      {showParent && <td className="px-3 py-2 border-b border-[var(--border-c)] text-gray-500">{r.parent}</td>}
+                      <td className={td}>{r.c.falta}</td><td className={td}>{r.c.meia}</td><td className={td}>{r.c.abandono}</td>
+                      <td className={td + " font-extrabold"}>{t}</td>
+                      <td className={td} title={`Interno ${r.c.cInt} · Externo ${r.c.cExt}`}>{cob} <span className="text-gray-400">({r.c.cInt}i/{r.c.cExt}e)</span></td>
+                      <td className={td} style={r.c.sem > 0 ? { color: "#ef4444", fontWeight: 700 } : {}}>{r.c.sem}</td>
+                      <td className={td}>{t > 0 ? `${Math.round((r.c.sem / t) * 100)}%` : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {sel && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-bold">Ocorrências · {sel.nome} <span className="text-gray-400 font-normal">({sel.recs.length})</span></div>
+                <button onClick={() => onSelect(null)} className="text-xs font-semibold text-gray-500">Fechar</button>
+              </div>
+              <OccurrenceTable items={sel.recs} />
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function AnalysesView({ stores, employees, clients, getScheduleForMonth, monthOptions, refsReady }) {
+  const lastMonth = monthOptions[monthOptions.length - 1];
+  const [tab, setTab] = useState("motoristas");
+  const [period, setPeriod] = useState(lastMonth);
+  const [fWeek, setFWeek] = useState("");
+  const [fCliente, setFCliente] = useState("");
+  const [fLoja, setFLoja] = useState("");
+  const [fEmp, setFEmp] = useState("");
+  const [fTipo, setFTipo] = useState("");
+  const [selEmp, setSelEmp] = useState(null);
+  const [selCli, setSelCli] = useState(null);
+  const [selLoja, setSelLoja] = useState(null);
+  const [cfg, setCfgState] = useState(() => {
+    try { const raw = localStorage.getItem("opsAlertCfg"); return raw ? { ...ALERT_CFG_DEFAULT, ...JSON.parse(raw) } : { ...ALERT_CFG_DEFAULT }; } catch (e) { return { ...ALERT_CFG_DEFAULT }; }
+  });
+  const setCfg = useCallback((c) => { setCfgState(c); try { localStorage.setItem("opsAlertCfg", JSON.stringify(c)); } catch (e) {} }, []);
+
+  const periodMonths = useMemo(() => (period.startsWith("ult") ? monthWindow(lastMonth, Number(period.slice(3))) : [period]), [period, lastMonth]);
+  // carrega também 3 meses anteriores ao período (base de comparação dos alertas / variações)
+  const loadMonths = useMemo(() => [...new Set([...monthWindow(periodMonths[0], 4), ...periodMonths])].sort(), [periodMonths]);
+  const data = useOpsData({ months: loadMonths, stores, employees, clients, getScheduleForMonth, enabled: refsReady });
+  const loading = data.status === "loading";
+
+  const abs = useMemo(() => data.recs.filter((r) => ABS_TYPES.includes(r.st)), [data.recs]);
+  const scoped = useMemo(() => abs.filter((r) => (!fCliente || r.clientId === fCliente) && (!fLoja || r.storeId === fLoja) && (!fEmp || r.empId === fEmp)), [abs, fCliente, fLoja, fEmp]);
+  const inPeriod = useMemo(() => {
+    const set = new Set(periodMonths);
+    return scoped.filter((r) => set.has(r.mk) && (!fWeek || r.wk === fWeek) && (!fTipo || r.st === fTipo));
+  }, [scoped, periodMonths, fWeek, fTipo]);
+
+  const singleMonth = periodMonths.length === 1 ? periodMonths[0] : null;
+  const weekOptions = useMemo(() => (singleMonth ? weeksOfMonth(singleMonth) : []), [singleMonth]);
+  const storeOptions = useMemo(() => stores.filter((s) => !fCliente || s.clienteId === fCliente).sort((a, b) => a.nome.localeCompare(b.nome)), [stores, fCliente]);
+  const empOptions = useMemo(() => [...employees].sort((a, b) => a.nome.localeCompare(b.nome)), [employees]);
+  const periodLabel = period.startsWith("ult") ? `Últimos ${period.slice(3)} meses (${monthShort(periodMonths[0])} – ${monthShort(periodMonths[periodMonths.length - 1])})` : monthLabelOf(period);
+
+  const onPeriod = (v) => { setPeriod(v); setFWeek(""); };
+  const onCliente = (v) => { setFCliente(v); setFLoja(""); };
+
+  // -------- 3.1 Motoristas --------
+  const empRows = useMemo(() => {
+    const map = new Map();
+    inPeriod.forEach((r) => {
+      let e = map.get(r.empId);
+      if (!e) { e = { id: r.empId, nome: r.emp, store: r.store, client: r.client, c: emptyCounts(), weeks: new Set(), months: new Set(), last: "", recs: [] }; map.set(r.empId, e); }
+      addRec(e.c, r); e.weeks.add(r.wk); e.months.add(r.mk); e.recs.push(r);
+      if (r.date >= e.last) { e.last = r.date; e.store = r.store; e.client = r.client; }
+    });
+    return [...map.values()].sort((a, b) => totalFaltas(b.c) - totalFaltas(a.c) || a.nome.localeCompare(b.nome));
+  }, [inPeriod]);
+  const empChart = useMemo(() => {
+    const top = empRows.slice(0, 10);
+    return { labels: top.map((r) => r.nome), datasets: [
+      { label: "Falta", data: top.map((r) => r.c.falta), backgroundColor: "#ef4444" },
+      { label: "Meia Falta", data: top.map((r) => r.c.meia), backgroundColor: "#f59e0b" },
+      { label: "Abandono", data: top.map((r) => r.c.abandono), backgroundColor: "#7f1d1d" },
+    ] };
+  }, [empRows]);
+  const recurrence = useMemo(() => empRows.slice(0, 10).map((e) => ({ e, per: periodMonths.map((mk) => e.recs.filter((r) => r.mk === mk).length) })), [empRows, periodMonths]);
+  const recMax = Math.max(1, ...recurrence.flatMap((r) => r.per));
+
+  // Histórico individual: todos os meses carregados (ignora período/semana/tipo; respeita apenas o motorista)
+  const histRecs = useMemo(() => (selEmp ? abs.filter((r) => r.empId === selEmp) : []), [abs, selEmp]);
+  const histInfo = useMemo(() => {
+    if (!selEmp) return null;
+    const c = countRecs(histRecs);
+    const byMonth = loadMonths.map((mk) => countRecs(histRecs.filter((r) => r.mk === mk)));
+    const days = {};
+    histRecs.forEach((r) => { (days[r.mk] = days[r.mk] || []).push(r.day); });
+    const dow = [0, 0, 0, 0, 0, 0, 0];
+    histRecs.forEach((r) => { dow[r.dow]++; });
+    const weeks = [...new Set(histRecs.map((r) => r.wk))].sort();
+    return { c, byMonth, days, dow, weeks };
+  }, [histRecs, selEmp, loadMonths]);
+  const selEmpName = selEmp ? (employees.find((e) => e.id === selEmp)?.nome || (histRecs[0] && histRecs[0].emp) || "—") : "";
+
+  // -------- 3.2 Clientes / Lojas (rankings separados) --------
+  const rankBy = (idFn, nameFn, parentFn) => {
+    const map = new Map();
+    inPeriod.forEach((r) => {
+      const id = idFn(r);
+      let e = map.get(id);
+      if (!e) { e = { id, nome: nameFn(r), parent: parentFn ? parentFn(r) : "", c: emptyCounts(), recs: [] }; map.set(id, e); }
+      addRec(e.c, r); e.recs.push(r);
+    });
+    return [...map.values()].sort((a, b) => totalFaltas(b.c) - totalFaltas(a.c) || a.nome.localeCompare(b.nome));
+  };
+  const cliRows = useMemo(() => rankBy((r) => r.clientId || "_none", (r) => r.client), [inPeriod]);
+  const lojaRows = useMemo(() => rankBy((r) => r.storeId || "_none", (r) => r.store, (r) => r.client), [inPeriod]);
+
+  // -------- 3.3 Alertas (ignora filtro de tipo e de semana no cálculo base) --------
+  const alertsAll = useMemo(() => computeAlerts(scoped, periodMonths, loadMonths, data.monthHasData, cfg), [scoped, periodMonths, loadMonths, data.monthHasData, cfg]);
+  const alerts = useMemo(() => alertsAll.filter((a) => !(fWeek && a.scope === "Semanal" && a.sortKey !== fWeek)), [alertsAll, fWeek]);
+
+  const noData = !loading && data.status === "ready" && !periodMonths.some((mk) => data.monthHasData[mk]);
+  const kpi = useMemo(() => countRecs(inPeriod), [inPeriod]);
+
+  return (
+    <div className="p-4 md:p-8 fade-in">
+      <h1 className="text-2xl font-extrabold">Análises</h1>
+      <p className="text-sm text-gray-400 mb-5">Recorrência de faltas, ranking de clientes e lojas e alertas operacionais · {periodLabel}</p>
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <select value={period} onChange={(e) => onPeriod(e.target.value)} className={filterSelCls} title="Período">
+          <optgroup label="Mês">{[...monthOptions].reverse().map((mk) => <option key={mk} value={mk}>{monthLabelOf(mk)}</option>)}</optgroup>
+          <optgroup label="Intervalo"><option value="ult3">Últimos 3 meses</option><option value="ult6">Últimos 6 meses</option><option value="ult12">Últimos 12 meses</option></optgroup>
+        </select>
+        <select value={fWeek} onChange={(e) => setFWeek(e.target.value)} disabled={!singleMonth} className={filterSelCls + (singleMonth ? "" : " opacity-50")} title="Semana (disponível quando o período é um único mês)">
+          <option value="">Todas as semanas</option>
+          {weekOptions.map((w) => <option key={w.wk} value={w.wk}>{w.label}</option>)}
+        </select>
+        <select value={fCliente} onChange={(e) => onCliente(e.target.value)} className={filterSelCls}>
+          <option value="">Todos os Clientes</option>
+          {clients.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+        </select>
+        <select value={fLoja} onChange={(e) => setFLoja(e.target.value)} className={filterSelCls}>
+          <option value="">Todas as Lojas</option>
+          {storeOptions.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+        </select>
+        <select value={fEmp} onChange={(e) => setFEmp(e.target.value)} className={filterSelCls}>
+          <option value="">Todos os Motoristas</option>
+          {empOptions.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
+        </select>
+        <select value={fTipo} onChange={(e) => setFTipo(e.target.value)} className={filterSelCls} title="Não afeta o cálculo dos alertas">
+          <option value="">Todas as ocorrências</option>
+          {ABS_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit max-w-full overflow-x-auto mb-5">
+        {[["motoristas", "Motoristas"], ["clientes", "Clientes e Lojas"], ["alertas", "Alertas"]].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} className={`px-4 py-1.5 rounded-md text-sm font-semibold whitespace-nowrap ${tab === k ? "bg-white shadow text-[var(--text-primary)]" : "text-gray-500"}`}>{l}</button>
+        ))}
+      </div>
+
+      {(loading || data.status === "error") && <StateBox status={data.status} error={data.error} onRetry={data.reload} />}
+      {noData && <StateBox status="ready" empty emptyText={`Sem dados registados na grelha para ${periodLabel}.`} />}
+
+      {!loading && data.status === "ready" && !noData && (
+        <>
+          {tab !== "alertas" && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+              <MiniStat label="Total de faltas" value={totalFaltas(kpi)} sub="Falta + Meia + Abandono" color="#ef4444" />
+              <MiniStat label="Faltas completas" value={kpi.falta} color="#ef4444" />
+              <MiniStat label="Meias faltas" value={kpi.meia} color="#f59e0b" />
+              <MiniStat label="Abandonos" value={kpi.abandono} color="#b91c1c" />
+            </div>
+          )}
+
+          {tab === "motoristas" && (
+            <>
+              <Card title="Motoristas com mais faltas" className="mb-5" right={<span className="text-[11px] text-gray-400">Top 10 · clique numa linha para o histórico</span>}>
+                {empRows.length === 0 ? <div className="text-sm text-gray-400 py-6 text-center">Sem faltas para os filtros selecionados.</div> : (
+                  <>
+                    <div className="mb-4"><ChartCanvas type="bar" data={empChart} options={hBarStackOpts} height={Math.max(140, 60 + Math.min(10, empRows.length) * 30)} /></div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs min-w-[820px]">
+                        <thead>
+                          <tr className="text-[10px] uppercase tracking-wide text-gray-400 text-center">
+                            <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">#</th>
+                            <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">Motorista</th>
+                            <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">Cliente · Loja (última ocorrência)</th>
+                            {["Faltas", "Meias", "Abandonos", "Total", "Sem backup", "Semanas", "Meses", "Última"].map((h) => <th key={h} className="px-3 py-2 border-b border-[var(--border-c)]">{h}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {empRows.map((r, i) => {
+                            const td = "px-3 py-2 border-b border-[var(--border-c)] text-center tabular-nums";
+                            return (
+                              <tr key={r.id} onClick={() => setSelEmp(selEmp === r.id ? null : r.id)} className={`cursor-pointer hover:bg-gray-50/60 ${selEmp === r.id ? "bg-gray-50" : ""}`}>
+                                <td className="px-3 py-2 border-b border-[var(--border-c)] text-gray-400">{i + 1}</td>
+                                <td className="px-3 py-2 border-b border-[var(--border-c)] font-bold">{r.nome}</td>
+                                <td className="px-3 py-2 border-b border-[var(--border-c)] text-gray-500">{r.client} · {r.store}</td>
+                                <td className={td}>{r.c.falta}</td><td className={td}>{r.c.meia}</td><td className={td}>{r.c.abandono}</td>
+                                <td className={td + " font-extrabold"}>{totalFaltas(r.c)}</td>
+                                <td className={td} style={r.c.sem > 0 ? { color: "#ef4444", fontWeight: 700 } : {}}>{r.c.sem}</td>
+                                <td className={td}>{r.weeks.size}</td><td className={td}>{r.months.size}</td>
+                                <td className={td + " whitespace-nowrap"}>{fmtDMY(r.last)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </Card>
+
+              {recurrence.length > 0 && (
+                <Card title="Recorrência mensal · Top 10" className="mb-5" right={<span className="text-[11px] text-gray-400">Faltas por mês no período</span>}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs" style={{ minWidth: 220 + periodMonths.length * 64 }}>
+                      <thead>
+                        <tr className="text-[10px] uppercase tracking-wide text-gray-400 text-center">
+                          <th className="px-3 py-2 border-b border-[var(--border-c)] text-left">Motorista</th>
+                          {periodMonths.map((mk) => <th key={mk} className="px-2 py-2 border-b border-[var(--border-c)] whitespace-nowrap">{monthShort(mk)}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recurrence.map(({ e, per }) => (
+                          <tr key={e.id}>
+                            <td className="px-3 py-1 border-b border-[var(--border-c)] font-semibold whitespace-nowrap">{e.nome}</td>
+                            {per.map((n, i) => (
+                              <td key={i} className="px-1 py-1 border-b border-[var(--border-c)]">
+                                <div className="rounded-md h-7 flex items-center justify-center font-bold tabular-nums" style={n ? { background: `rgba(239,68,68,${0.12 + 0.75 * (n / recMax)})`, color: n / recMax > 0.55 ? "#fff" : "#991b1b" } : { color: "#9ca3af" }}>{n}</div>
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+
+              {selEmp && histInfo && (
+                <Card title={`Histórico individual · ${selEmpName}`} className="mb-5" right={<button onClick={() => setSelEmp(null)} className="text-xs font-semibold text-gray-500">Fechar</button>}>
+                  <p className="text-[11px] text-gray-400 mb-3">Todos os meses carregados ({monthShort(loadMonths[0])} – {monthShort(loadMonths[loadMonths.length - 1])}), independentemente dos filtros de período, semana e tipo. Escolha “Últimos 12 meses” para um histórico mais longo.</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+                    <MiniStat label="Total" value={totalFaltas(histInfo.c)} color="#ef4444" />
+                    <MiniStat label="Faltas" value={histInfo.c.falta} />
+                    <MiniStat label="Meias faltas" value={histInfo.c.meia} />
+                    <MiniStat label="Abandonos" value={histInfo.c.abandono} />
+                    <MiniStat label="Sem backup" value={histInfo.c.sem} color="#ef4444" />
+                  </div>
+                  {histRecs.length === 0 ? <div className="text-sm text-gray-400 py-4 text-center">Sem faltas registadas nos meses carregados.</div> : (
+                    <>
+                      <div className="grid lg:grid-cols-2 gap-5 mb-4">
+                        <div>
+                          <div className="text-xs font-bold text-gray-500 mb-2">Faltas por mês</div>
+                          <ChartCanvas type="bar" data={{ labels: loadMonths.map(monthShort), datasets: [
+                            { label: "Falta", data: histInfo.byMonth.map((c) => c.falta), backgroundColor: "#ef4444" },
+                            { label: "Meia Falta", data: histInfo.byMonth.map((c) => c.meia), backgroundColor: "#f59e0b" },
+                            { label: "Abandono", data: histInfo.byMonth.map((c) => c.abandono), backgroundColor: "#7f1d1d" },
+                          ] }} options={barStackOpts} height={200} />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-gray-500 mb-2">Dias e semanas</div>
+                          <div className="space-y-1.5 text-xs text-gray-500 max-h-[200px] overflow-auto pr-1">
+                            {Object.keys(histInfo.days).sort().map((mk) => (
+                              <div key={mk}><b className="text-[var(--text-primary)]">{monthLabelOf(mk)}:</b> dias {[...new Set(histInfo.days[mk])].sort((a, b) => a - b).join(", ")}</div>
+                            ))}
+                            <div className="pt-1"><b className="text-[var(--text-primary)]">Semanas:</b> {histInfo.weeks.map(weekRangeLabel).join(" · ")}</div>
+                            <div><b className="text-[var(--text-primary)]">Dia da semana:</b> {DIAS_SEMANA.map((d, i) => `${d} ${histInfo.dow[i]}`).join(" · ")}</div>
+                          </div>
+                        </div>
+                      </div>
+                      <OccurrenceTable items={histRecs} />
+                    </>
+                  )}
+                </Card>
+              )}
+            </>
+          )}
+
+          {tab === "clientes" && (
+            <>
+              <RankSection title="Ranking por Cliente" rows={cliRows} selected={selCli} onSelect={setSelCli} emptyText="Sem faltas para os filtros selecionados." />
+              <RankSection title="Ranking por Loja" rows={lojaRows} selected={selLoja} onSelect={setSelLoja} showParent emptyText="Sem faltas para os filtros selecionados." />
+              <p className="text-[11px] text-gray-400 leading-relaxed">Cobertura = mesma loja e mesmo dia (célula da loja pool ou registo de Backup com destino = loja; cada backup cobre uma falta). Backups registados com destino que não corresponda ao nome de uma loja não podem ser ligados a uma falta e ficam como “sem cobertura”.</p>
+            </>
+          )}
+
+          {tab === "alertas" && <AlertsPanel alerts={alerts} cfg={cfg} setCfg={setCfg} periodLabel={periodLabel} />}
+        </>
+      )}
     </div>
   );
 }
@@ -1858,6 +2986,8 @@ function App() {
   const [stores, setStores] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [clients, setClients] = useState([]);
+  const [refsLoaded, setRefsLoaded] = useState({ s: false, e: false, c: false });
+  const refsReady = refsLoaded.s && refsLoaded.e && refsLoaded.c;
   const [dark, setDark] = useState(() => {
     try { return localStorage.getItem("opsTheme") === "dark"; } catch (e) { return false; }
   });
@@ -1884,12 +3014,13 @@ function App() {
   // Coleções pequenas (lojas / colaboradores): listener único, dados leves -> mantido sempre ativo
   useEffect(() => {
     if (!user) return;
+    const mark = (k) => setRefsLoaded(p => (p[k] ? p : { ...p, [k]: true }));
     const unsub1 = col("stores").orderBy("ordem", "asc").onSnapshot(
-      (snap) => setStores(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      () => col("stores").onSnapshot((snap) => setStores(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      (snap) => { setStores(snap.docs.map(d => ({ id: d.id, ...d.data() }))); mark("s"); },
+      () => col("stores").onSnapshot((snap) => { setStores(snap.docs.map(d => ({ id: d.id, ...d.data() }))); mark("s"); })
     );
-    const unsub2 = col("employees").onSnapshot((snap) => setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsub3 = col("clients").onSnapshot((snap) => setClients(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsub2 = col("employees").onSnapshot((snap) => { setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() }))); mark("e"); });
+    const unsub3 = col("clients").onSnapshot((snap) => { setClients(snap.docs.map(d => ({ id: d.id, ...d.data() }))); mark("c"); });
     return () => { unsub1(); unsub2(); unsub3(); };
   }, [user]);
 
@@ -1943,7 +3074,8 @@ function App() {
       <Sidebar view={view} setView={setView} collapsed={collapsed} setCollapsed={setCollapsed} user={user} onLogout={handleLogout} />
       <div className="flex-1 min-w-0">
         <Header user={user} dark={dark} onToggleDark={toggleDark} />
-        {view === "dashboard" && <DashboardView stores={stores} employees={employees} getScheduleForMonth={getScheduleForMonth} monthOptions={monthOptions} />}
+        {view === "dashboard" && <DashboardView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} monthOptions={monthOptions} refsReady={refsReady} />}
+        {view === "analyses" && <AnalysesView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} monthOptions={monthOptions} refsReady={refsReady} />}
         {view === "grid" && <GridView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} saveCellStatus={saveCellStatus} getArrivalsForMonth={getArrivalsForMonth} saveArrivalTime={saveArrivalTime} />}
         {view === "employees" && <EmployeesView employees={employees} stores={stores} />}
         {view === "stores" && <StoresView stores={stores} employees={employees} clients={clients} />}
