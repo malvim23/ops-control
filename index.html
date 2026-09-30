@@ -188,9 +188,12 @@ const STATUS_OPTIONS = [
   { value: "Folga",           label: "Folga",        bg: "#eef0f4", fg: "#4b5563", dot: "#9ca3af" },
   { value: "Baixa",           label: "Baixa",        bg: "#ede9fe", fg: "#6d28d9", dot: "#a855f7" },
   { value: "Abandono",        label: "Abandono",     bg: "#7f1d1d", fg: "#fecaca", dot: "#b91c1c" },
+  { value: "Desligado",       label: "Desligado",    bg: "#374151", fg: "#e5e7eb", dot: "#374151" },
   // Dia que não vai ser preenchido (ex.: fora de período, não aplicável) -> bloco cinza claro, sem texto na célula.
   { value: "Bloqueado",       label: "Sem preenchimento", bg: "#d1d5db", fg: "#d1d5db", dot: "#9ca3af", blank: true },
 ];
+// Estados que encerram o colaborador: o resto do mês fica "Sem preenchimento" e o colaborador sai da grelha no mês seguinte.
+const EXIT_STATUSES = ["Abandono", "Desligado"];
 const statusMeta = (v) => STATUS_OPTIONS.find(s => s.value === v) || STATUS_OPTIONS[0];
 
 const STORE_COLORS = ["#9ca3af","#8b5cf6","#ec4899","#22c55e","#eab308","#fb7185","#1e3a5f","#06b6d4","#f472b6","#3b82f6","#f97316","#14b8a6","#ef4444","#6366f1","#84cc16"];
@@ -1890,7 +1893,7 @@ function CellStatusMenu({ anchorRect, value, onSelect, onClose }) {
 
 function CellStoreMenu({ anchorRect, options, value, onSelect, onClose }) {
   const [pos, setPos] = useState(null);
-  const quickStatuses = ["Falta", "Abandono", "Bloqueado"].map(v => STATUS_OPTIONS.find(o => o.value === v)).filter(Boolean);
+  const quickStatuses = ["Falta", "Abandono", "Desligado", "Bloqueado"].map(v => STATUS_OPTIONS.find(o => o.value === v)).filter(Boolean);
 
   useEffect(() => {
     const menuW = 210;
@@ -1945,7 +1948,7 @@ function CellStoreMenu({ anchorRect, options, value, onSelect, onClose }) {
   );
 }
 
-function GridView({ stores, employees, clients, getScheduleForMonth, saveCellStatus, getArrivalsForMonth, saveArrivalTime }) {
+function GridView({ stores, employees, clients, getScheduleForMonth, saveCellStatus, saveCellsBatch, getArrivalsForMonth, saveArrivalTime }) {
   const now = new Date();
   const [y, setY] = useState(now.getFullYear());
   const [m, setM] = useState(now.getMonth());
@@ -1985,7 +1988,8 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
   const nDays = daysInMonth(y, m);
   const days = Array.from({ length: nDays }, (_, i) => i + 1);
 
-  const activeEmployees = useMemo(() => employees.filter(e => e.estado !== "Desligado"), [employees]);
+  // Desligados só saem da grelha no mês seguinte ao da data de saída (desligadoData).
+  const activeEmployees = useMemo(() => employees.filter(e => e.estado !== "Desligado" || (!!e.desligadoData && e.desligadoData.slice(0, 7) >= mk)), [employees, mk]);
   const storesSorted = useMemo(() => [...stores].sort((a,b)=> (a.ordem??0)-(b.ordem??0) || a.nome.localeCompare(b.nome)), [stores]);
 
   const visibleStores = storesSorted.filter(s => (!fLoja || s.id === fLoja) && (!fCliente || s.clienteId === fCliente));
@@ -2023,14 +2027,54 @@ function GridView({ stores, employees, clients, getScheduleForMonth, saveCellSta
   };
 
   const setCell = async (empId, day, value) => {
+    const emp = employees.find(x => x.id === empId);
+    const store = editingCell?.store;
     const prevVal = schedule[cellKey(empId, day)] || "";
+    const isExit = EXIT_STATUSES.includes(value);
+    const wasExit = EXIT_STATUSES.includes(prevVal);
+    const exitDate = isoDate(y, m, day);
+    const fromLabel = store?.tipo === "backup_pool" ? (storeById(prevVal)?.nome || (prevVal || "—")) : (statusMeta(prevVal).label);
+    const toLabel = store?.tipo === "backup_pool" ? (storeById(value)?.nome || (value || "—")) : (statusMeta(value).label);
+
+    // Abandono / Desligado: dias seguintes do mês -> "Sem preenchimento" + colaborador desativado com data de saída.
+    if (isExit) {
+      const rest = {};
+      let overwrites = 0;
+      for (let d = day + 1; d <= nDays; d++) {
+        const cur = schedule[cellKey(empId, d)] || "";
+        if (cur && cur !== "Bloqueado") overwrites++;
+        rest[cellKey(empId, d)] = "Bloqueado";
+      }
+      if (overwrites > 0 && !window.confirm(`${emp?.nome || "Colaborador"}: ${value} no dia ${day}.\n\nOs ${overwrites} dia(s) seguintes já preenchidos vão passar a "Sem preenchimento" e o colaborador será desativado (data de saída ${fmtDMY(exitDate)}).\n\nContinuar?`)) {
+        setEditingCell(null);
+        return;
+      }
+      const batch = { [cellKey(empId, day)]: value, ...rest };
+      setSchedule(prev => ({ ...prev, ...batch }));
+      setEditingCell(null);
+      await saveCellsBatch(mk, batch);
+      if (emp) await col("employees").doc(empId).set({ estado: "Desligado", desligadoData: exitDate }, { merge: true });
+      logHistory("Editou", "Grelha", emp?.nome || "—", `${MESES[m]}/${y}, dia ${day}: "${fromLabel}" → "${toLabel}" · restantes dias sem preenchimento · desativado (saída ${fmtDMY(exitDate)})`);
+      return;
+    }
+
+    // Desfazer: se a célula de saída for alterada para outro estado, reativa o colaborador e limpa o "sem preenchimento" automático.
+    if (wasExit && emp && emp.estado === "Desligado" && emp.desligadoData === exitDate) {
+      const batch = { [cellKey(empId, day)]: value };
+      for (let d = day + 1; d <= nDays; d++) {
+        if ((schedule[cellKey(empId, d)] || "") === "Bloqueado") batch[cellKey(empId, d)] = "";
+      }
+      setSchedule(prev => ({ ...prev, ...batch }));
+      setEditingCell(null);
+      await saveCellsBatch(mk, batch);
+      await col("employees").doc(empId).set({ estado: "Ativo", desligadoData: "" }, { merge: true });
+      logHistory("Editou", "Grelha", emp.nome, `${MESES[m]}/${y}, dia ${day}: "${fromLabel}" → "${toLabel}" · colaborador reativado`);
+      return;
+    }
+
     setSchedule(prev => ({ ...prev, [cellKey(empId, day)]: value }));
     setEditingCell(null);
     await saveCellStatus(mk, empId, day, value);
-    const emp = employees.find(x => x.id === empId);
-    const store = editingCell?.store;
-    const fromLabel = store?.tipo === "backup_pool" ? (storeById(prevVal)?.nome || (prevVal || "—")) : (statusMeta(prevVal).label);
-    const toLabel = store?.tipo === "backup_pool" ? (storeById(value)?.nome || (value || "—")) : (statusMeta(value).label);
     logHistory("Editou", "Grelha", emp?.nome || "—", `${MESES[m]}/${y}, dia ${day}: "${fromLabel}" → "${toLabel}"`);
   };
 
@@ -3039,6 +3083,13 @@ function App() {
     if (scheduleCache.current[mk]) scheduleCache.current[mk][cellKey(empId, day)] = value;
   }, []);
 
+  // Grava várias células de uma vez (1 escrita) — usado em Abandono/Desligado para bloquear o resto do mês.
+  const saveCellsBatch = useCallback(async (mk, cellsObj) => {
+    const ref = col("schedule").doc(mk);
+    await ref.set({ cells: cellsObj }, { merge: true });
+    if (scheduleCache.current[mk]) Object.assign(scheduleCache.current[mk], cellsObj);
+  }, []);
+
   // Hora de chegada do camião: guardada no mesmo documento mensal ("schedule/{mk}"),
   // num campo separado "arrivals" (chave por loja+dia) -> não interfere na grelha de status.
   const getArrivalsForMonth = useCallback(async (mk) => {
@@ -3075,7 +3126,7 @@ function App() {
         <Header user={user} dark={dark} onToggleDark={toggleDark} />
         {view === "dashboard" && <DashboardView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} monthOptions={monthOptions} refsReady={refsReady} />}
         {view === "analyses" && <AnalysesView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} monthOptions={monthOptions} refsReady={refsReady} />}
-        {view === "grid" && <GridView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} saveCellStatus={saveCellStatus} getArrivalsForMonth={getArrivalsForMonth} saveArrivalTime={saveArrivalTime} />}
+        {view === "grid" && <GridView stores={stores} employees={employees} clients={clients} getScheduleForMonth={getScheduleForMonth} saveCellStatus={saveCellStatus} saveCellsBatch={saveCellsBatch} getArrivalsForMonth={getArrivalsForMonth} saveArrivalTime={saveArrivalTime} />}
         {view === "employees" && <EmployeesView employees={employees} stores={stores} />}
         {view === "stores" && <StoresView stores={stores} employees={employees} clients={clients} />}
         {view === "backups" && <BackupsView employees={employees} monthOptions={monthOptions} />}
